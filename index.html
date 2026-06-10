@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MÁS Professional Services — Invoice Generator</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink:#16130f;--ink2:#3a3630;--ink3:#706b63;--ink4:#a8a39b;
+  --canvas:#f5f2ec;--canvas2:#ece8e0;--canvas3:#e0dbd0;
+  --white:#ffffff;
+  --teal:#1a7a6e;--teal2:#22a090;--teal-light:#e6f4f2;--teal-mid:#c0e8e3;
+  --gold:#b8860b;--gold2:#d4a017;--gold-light:#faf3e0;
+  --red:#c0392b;--red-light:#fdf0ef;
+  --green:#1e6b45;--green-light:#e8f4ed;
+  --r:10px;--r-sm:6px;--r-lg:16px;
+  --sh:0 1px 3px rgba(22,19,15,.06),0 4px 12px rgba(22,19,15,.07);
+  --sh-lg:0 8px 32px rgba(22,19,15,.13);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--canvas);color:var(--ink);min-height:100vh;font-size:14px;line-height:1.5;}
+
+/* HEADER */
+.hdr{background:var(--ink);padding:0 32px;display:flex;align-items:center;justify-content:space-between;height:58px;position:sticky;top:0;z-index:50;border-bottom:1px solid rgba(255,255,255,.06);}
+.logo{font-family:'Fraunces',serif;font-size:21px;color:var(--teal2);letter-spacing:.01em;display:flex;align-items:baseline;gap:10px;}
+.logo-sub{font-family:'Inter',sans-serif;font-size:10px;font-weight:300;color:#555;letter-spacing:.14em;text-transform:uppercase;}
+.hdr-nav{display:flex;gap:2px;}
+.hdr-tab{background:transparent;border:none;color:#666;font-family:'Inter',sans-serif;font-size:12px;font-weight:500;padding:6px 14px;border-radius:6px;cursor:pointer;letter-spacing:.05em;text-transform:uppercase;transition:all .18s;}
+.hdr-tab:hover{color:white;background:rgba(255,255,255,.07);}
+.hdr-tab.active{color:var(--teal2);background:rgba(26,122,110,.15);}
+
+/* LAYOUT */
+.app{max-width:980px;margin:0 auto;padding:36px 20px 100px;}
+.page-title{font-family:'Fraunces',serif;font-size:28px;font-weight:300;margin-bottom:4px;letter-spacing:-.01em;}
+.page-sub{font-size:13px;color:var(--ink3);margin-bottom:32px;}
+
+/* CARDS */
+.card{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);padding:28px;margin-bottom:20px;}
+.card-hdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:22px;gap:12px;}
+.card-title{font-family:'Fraunces',serif;font-size:17px;font-weight:400;}
+.card-sub{font-size:12px;color:var(--ink3);margin-top:3px;}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:var(--r-sm);font-family:'Inter',sans-serif;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .18s;white-space:nowrap;text-decoration:none;}
+.btn-primary{background:var(--ink);color:white;}.btn-primary:hover{background:#2a2620;box-shadow:var(--sh);}
+.btn-teal{background:var(--teal);color:white;}.btn-teal:hover{background:var(--teal2);}
+.btn-gold{background:var(--gold2);color:white;}.btn-gold:hover{background:#b8860b;}
+.btn-outline{background:transparent;color:var(--ink);border:1.5px solid var(--canvas3);}.btn-outline:hover{border-color:var(--ink);}
+.btn-ghost{background:transparent;color:var(--ink3);padding:7px 12px;}.btn-ghost:hover{color:var(--ink);}
+.btn-danger{background:var(--red-light);color:var(--red);border:1.5px solid #f5c5c0;}
+.btn-success{background:var(--green-light);color:var(--green);border:1.5px solid #b8ddc9;}
+.btn-sm{padding:7px 14px;font-size:12px;}
+.btn-xs{padding:4px 10px;font-size:11px;}
+
+/* FORMS */
+.fg{display:flex;flex-direction:column;gap:5px;}
+.form-grid{display:grid;gap:14px;}
+.g2{grid-template-columns:1fr 1fr;}
+.g3{grid-template-columns:1fr 1fr 1fr;}
+.g4{grid-template-columns:1fr 1fr 1fr 1fr;}
+.full{grid-column:1/-1;}
+label{font-size:11px;font-weight:500;letter-spacing:.07em;text-transform:uppercase;color:var(--ink2);}
+input,select,textarea{padding:9px 12px;border:1.5px solid var(--canvas3);border-radius:var(--r-sm);font-family:'Inter',sans-serif;font-size:13px;color:var(--ink);background:var(--canvas);transition:border-color .18s;outline:none;width:100%;}
+input:focus,select:focus,textarea:focus{border-color:var(--teal);background:white;}
+textarea{resize:vertical;min-height:70px;}
+.input-pfx{position:relative;}
+.input-pfx span{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink3);font-size:13px;pointer-events:none;}
+.input-pfx input{padding-left:22px;}
+
+/* DIVIDER */
+.divider{height:1px;background:var(--canvas2);margin:22px 0;}
+
+/* BADGES */
+.badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:500;}
+.badge-medical{background:#e5f4ec;color:#1d6b40;}
+.badge-legal{background:#e5ecf8;color:#1d3d80;}
+.badge-eval{background:#f5ebe5;color:#7a3010;}
+.badge-general{background:var(--canvas2);color:var(--ink2);}
+.badge-teal{background:var(--teal-light);color:var(--teal);}
+
+/* GOOGLE CONNECT */
+.gcal-connect{border:2px dashed var(--canvas3);border-radius:var(--r-lg);padding:40px 32px;text-align:center;transition:border-color .2s;background:var(--canvas);}
+.gcal-connect:hover{border-color:var(--teal-mid);}
+.gcal-icon{width:52px;height:52px;margin:0 auto 18px;display:flex;align-items:center;justify-content:center;background:white;border-radius:12px;box-shadow:var(--sh);font-size:28px;}
+.gcal-connect h3{font-family:'Fraunces',serif;font-size:19px;font-weight:400;margin-bottom:8px;}
+.gcal-connect p{font-size:13px;color:var(--ink3);max-width:420px;margin:0 auto 22px;line-height:1.65;}
+
+/* CONNECTED STATE */
+.gcal-connected{display:flex;align-items:center;gap:16px;padding:16px 20px;background:var(--teal-light);border:1.5px solid var(--teal-mid);border-radius:var(--r);}
+.gcal-connected-info{flex:1;}
+.gcal-connected-info strong{display:block;font-size:14px;margin-bottom:2px;}
+.gcal-connected-info span{font-size:12px;color:var(--teal);}
+
+/* DATE RANGE */
+.date-range{display:flex;align-items:center;gap:10px;padding:14px 18px;background:var(--canvas);border-radius:var(--r-sm);border:1.5px solid var(--canvas3);margin-top:16px;flex-wrap:wrap;}
+.date-range label{font-size:12px;color:var(--ink3);white-space:nowrap;}
+.date-range input[type=date]{flex:1;min-width:130px;border:none;background:transparent;padding:4px 8px;}
+.date-range input[type=date]:focus{outline:none;background:white;border-radius:4px;}
+
+/* IMPORT EVENTS LIST */
+.import-event{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;padding:12px 14px;border-radius:8px;border:1.5px solid transparent;font-size:13px;transition:all .15s;}
+.import-event:hover{background:white;border-color:var(--canvas3);}
+.import-event.checked{background:var(--teal-light);border-color:var(--teal-mid);}
+.import-event.error{background:var(--red-light);border-color:#f5c5c0;opacity:.7;}
+.ie-main{font-weight:500;}
+.ie-sub{font-size:12px;color:var(--ink3);margin-top:1px;}
+.ie-amt{font-weight:600;color:var(--teal);font-variant-numeric:tabular-nums;white-space:nowrap;}
+
+/* ASSIGNMENTS TABLE */
+.assign-row{display:grid;grid-template-columns:18px 100px 1fr 85px 75px 85px 95px 56px;align-items:center;gap:10px;padding:11px 14px;border-radius:8px;border:1.5px solid transparent;font-size:13px;transition:all .15s;}
+.assign-row:hover{background:white;border-color:var(--canvas3);}
+.assign-row.selected{background:var(--teal-light);border-color:var(--teal-mid);}
+.assign-row input[type=checkbox]{width:15px;height:15px;accent-color:var(--teal);cursor:pointer;}
+.a-date{font-size:12px;font-weight:600;color:var(--ink2);}
+.a-main{font-weight:500;font-size:13px;}
+.a-sub{font-size:11px;color:var(--ink3);margin-top:1px;}
+.a-time{font-size:12px;color:var(--ink3);font-variant-numeric:tabular-nums;}
+.a-calc{font-size:12px;color:var(--ink3);}
+.a-amt{font-weight:600;color:var(--green);font-variant-numeric:tabular-nums;}
+.a-actions{display:flex;gap:4px;}
+
+/* SUMMARY BAR */
+.sum-bar{display:flex;align-items:center;justify-content:space-around;padding:16px 24px;background:var(--ink);border-radius:var(--r);color:white;margin-top:14px;}
+.sum-item{text-align:center;}
+.sum-lbl{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#555;margin-bottom:3px;}
+.sum-val{font-family:'Fraunces',serif;font-size:22px;font-weight:300;color:var(--teal2);}
+.sum-val.w{color:white;}
+
+/* INVOICE */
+.inv-wrap{background:white;border:1px solid var(--canvas3);border-radius:var(--r);overflow:hidden;font-family:'Inter',sans-serif;}
+.inv-hdr{background:var(--ink);padding:30px 40px;display:flex;justify-content:space-between;align-items:flex-start;}
+.inv-logo{font-family:'Fraunces',serif;font-size:28px;font-weight:300;color:var(--teal2);letter-spacing:.01em;}
+.inv-logo small{display:block;font-family:'Inter',sans-serif;font-size:10px;font-weight:300;color:#555;letter-spacing:.12em;text-transform:uppercase;margin-top:4px;}
+.inv-meta{text-align:right;color:#888;font-size:12px;line-height:2;}
+.inv-meta strong{display:block;font-family:'Fraunces',serif;font-size:24px;font-weight:300;color:var(--teal2);margin-bottom:2px;}
+.inv-body{padding:32px 40px;}
+.inv-parties{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-bottom:28px;}
+.inv-plbl{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);margin-bottom:7px;}
+.inv-pname{font-weight:600;font-size:15px;margin-bottom:3px;}
+.inv-pdet{font-size:12px;color:var(--ink3);line-height:1.7;}
+.inv-tbl{width:100%;border-collapse:collapse;margin-bottom:24px;}
+.inv-tbl th{text-align:left;padding:9px 10px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);border-bottom:1.5px solid var(--canvas2);}
+.inv-tbl td{padding:12px 10px;border-bottom:1px solid var(--canvas);font-size:13px;vertical-align:top;}
+.inv-tbl tr:last-child td{border-bottom:none;}
+.inv-tbl .right{text-align:right;}
+.inv-totals{margin-left:auto;width:270px;}
+.inv-trow{display:flex;justify-content:space-between;padding:5px 0;font-size:13px;color:var(--ink3);}
+.inv-trow.grand{border-top:2px solid var(--ink);margin-top:10px;padding-top:13px;font-weight:600;font-size:17px;color:var(--ink);}
+.inv-foot{background:var(--canvas);padding:18px 40px;border-top:1px solid var(--canvas2);display:flex;justify-content:space-between;align-items:center;}
+.inv-foot-note{font-size:11px;color:var(--ink3);}
+
+/* CLIENT CARDS */
+.client-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px;}
+.client-card{background:white;border:1.5px solid var(--canvas3);border-radius:var(--r);padding:20px;transition:all .18s;}
+.client-card:hover{border-color:var(--teal-mid);box-shadow:var(--sh);}
+.client-name{font-weight:600;font-size:15px;margin-bottom:2px;}
+.client-email{font-size:12px;color:var(--ink3);margin-bottom:12px;}
+.client-rates{display:flex;flex-wrap:wrap;gap:5px;}
+
+/* RATE ROWS */
+.rate-row{display:grid;grid-template-columns:1fr 90px 90px 32px;gap:10px;align-items:end;margin-bottom:10px;}
+
+/* INFO BOXES */
+.info{padding:12px 16px;border-radius:var(--r-sm);font-size:12px;line-height:1.65;}
+.info-teal{background:var(--teal-light);color:#0f4f48;border-left:3px solid var(--teal);}
+.info-gold{background:var(--gold-light);color:#7a5a10;border-left:3px solid var(--gold2);}
+.info-green{background:var(--green-light);color:#1a5535;border-left:3px solid var(--green);}
+.info-red{background:var(--red-light);color:#8a1f1f;border-left:3px solid var(--red);}
+
+/* STEPS */
+.steps{display:flex;align-items:center;margin-bottom:32px;gap:0;}
+.step{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:500;color:var(--ink3);letter-spacing:.04em;white-space:nowrap;}
+.step.active{color:var(--ink);}
+.step.done{color:var(--teal);}
+.step-num{width:26px;height:26px;border-radius:50%;background:var(--canvas2);color:var(--ink3);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0;}
+.step.active .step-num{background:var(--teal);color:white;}
+.step.done .step-num{background:var(--teal-light);color:var(--teal);}
+.step-line{flex:1;height:1px;background:var(--canvas3);margin:0 10px;}
+
+/* MODAL */
+.modal-bg{position:fixed;inset:0;background:rgba(22,19,15,.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;}
+.modal{background:white;border-radius:var(--r-lg);box-shadow:var(--sh-lg);padding:30px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;}
+.modal-title{font-family:'Fraunces',serif;font-size:21px;font-weight:400;margin-bottom:20px;}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:24px;}
+
+/* PAGES */
+.page{display:none;}.page.active{display:block;}
+
+/* ACTION BAR */
+.action-bar{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap;}
+
+/* HISTORY */
+.hist-row{display:grid;grid-template-columns:110px 1fr 110px 80px 100px;gap:12px;padding:13px 16px;border-radius:8px;font-size:13px;align-items:center;}
+.hist-row:hover{background:var(--canvas);}
+.hist-row.hdr-row{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);padding-bottom:8px;border-bottom:1px solid var(--canvas2);}
+
+/* TOAST */
+.toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:white;padding:12px 18px;border-radius:var(--r);font-size:13px;font-weight:500;display:flex;align-items:center;gap:10px;box-shadow:var(--sh-lg);transform:translateY(70px);opacity:0;transition:all .3s cubic-bezier(.34,1.56,.64,1);z-index:200;}
+.toast.show{transform:translateY(0);opacity:1;}
+
+/* EMPTY */
+.empty{text-align:center;padding:48px 20px;color:var(--ink3);}
+.empty-icon{font-size:38px;margin-bottom:14px;}
+.empty h3{font-family:'Fraunces',serif;font-size:18px;font-weight:400;color:var(--ink2);margin-bottom:6px;}
+.empty p{font-size:13px;line-height:1.65;max-width:320px;margin:0 auto;}
+
+/* SETUP GUIDE */
+.setup-step{display:flex;gap:16px;padding:18px 0;border-bottom:1px solid var(--canvas2);}
+.setup-step:last-child{border-bottom:none;}
+.setup-num{width:30px;height:30px;border-radius:50%;background:var(--teal-light);color:var(--teal);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;flex-shrink:0;margin-top:2px;}
+.setup-step h4{font-size:14px;font-weight:600;margin-bottom:5px;}
+.setup-step p{font-size:13px;color:var(--ink3);line-height:1.65;}
+.setup-step code{background:var(--canvas2);padding:2px 7px;border-radius:4px;font-size:12px;font-family:monospace;}
+
+@media(max-width:680px){
+  .hdr{padding:0 16px;}
+  .app{padding:20px 12px 60px;}
+  .assign-row{grid-template-columns:18px 1fr 85px 40px;}
+  .a-time,.a-calc,.a-date{display:none;}
+  .g3,.g4{grid-template-columns:1fr 1fr;}
+  .inv-hdr{flex-direction:column;gap:16px;}
+  .inv-parties{grid-template-columns:1fr;}
+  .inv-totals{width:100%;}
+  .steps{display:none;}
+}
+@media print{
+  .hdr,.hdr-nav,.steps,.action-bar,.sum-bar,.card-hdr .btn,.page-title,.page-sub{display:none!important;}
+  .inv-wrap{border:none;box-shadow:none;}
+  body{background:white;}
+  .card{box-shadow:none;border:none;padding:0;}
+}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="logo">MÁS <span class="logo-sub">Professional Services</span></div>
+  <div class="hdr-nav">
+    <button class="hdr-tab active" onclick="showPage('page-invoice')">New Invoice</button>
+    <button class="hdr-tab" onclick="showPage('page-clients')">Clients</button>
+    <button class="hdr-tab" onclick="showPage('page-history')">History</button>
+    <button class="hdr-tab" onclick="showPage('page-setup')">Setup Guide</button>
+  </div>
+</div>
+
+<div class="app">
+
+<!-- ══════════════════════════════════════════
+     PAGE: NEW INVOICE
+══════════════════════════════════════════ -->
+<div class="page active" id="page-invoice">
+
+  <div class="steps">
+    <div class="step active" id="stp1"><div class="step-num" id="sn1">1</div>Connect Calendar</div>
+    <div class="step-line"></div>
+    <div class="step" id="stp2"><div class="step-num" id="sn2">2</div>Select Assignments</div>
+    <div class="step-line"></div>
+    <div class="step" id="stp3"><div class="step-num" id="sn3">3</div>Review &amp; Generate</div>
+  </div>
+
+  <!-- STEP 1: GOOGLE CALENDAR -->
+  <div id="panel-connect">
+    <div class="card">
+      <div class="card-hdr">
+        <div><div class="card-title">Connect Google Calendar</div><div class="card-sub">Pull your assignments directly — no double entry.</div></div>
+      </div>
+
+      <div id="gcal-ui">
+        <div class="gcal-connect" id="gcal-box">
+          <div class="gcal-icon">📅</div>
+          <h3>Sign in with Google</h3>
+          <p>Connect the Google account where your MÁS calendar lives. The app reads your events and bills them automatically based on your client rate cards.</p>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="connectGoogle()" id="btn-google">
+              <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+              Connect Google Calendar
+            </button>
+            <button class="btn btn-outline" onclick="loadDemo()">▶ Try with demo data</button>
+          </div>
+        </div>
+
+        <!-- Shown after connect -->
+        <div id="gcal-connected-state" style="display:none;">
+          <div class="gcal-connected">
+            <span style="font-size:28px;">✅</span>
+            <div class="gcal-connected-info">
+              <strong id="gcal-account-name">Connected</strong>
+              <span id="gcal-account-email">Google Calendar linked</span>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="disconnectGoogle()">Disconnect</button>
+          </div>
+          <div class="date-range">
+            <label>Pull events from</label>
+            <input type="date" id="range-start">
+            <label style="color:var(--ink);">to</label>
+            <input type="date" id="range-end">
+            <button class="btn btn-teal btn-sm" onclick="fetchCalendarEvents()">Fetch assignments</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Format reminder -->
+      <div class="info info-gold" style="margin-top:18px;">
+        <strong>📌 Required calendar format</strong><br>
+        <strong>Title:</strong> <code style="background:rgba(0,0,0,.07);padding:1px 6px;border-radius:3px;font-size:12px;">Valley Medical Group — Evaluation — Maria Garcia — PO:12345</code> &nbsp;(PO optional)<br>
+        <strong>Location:</strong> Hospital or facility name &nbsp;·&nbsp; <strong>Description:</strong> <code style="background:rgba(0,0,0,.07);padding:1px 6px;border-radius:3px;font-size:12px;">Miles: 12</code> (or blank)
+      </div>
+    </div>
+
+    <!-- Imported events preview -->
+    <div class="card" id="events-card" style="display:none;">
+      <div class="card-hdr">
+        <div><div class="card-title">Imported assignments</div><div class="card-sub" id="events-sub">Review and select which to invoice.</div></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline btn-sm" onclick="selectAllEvents()">Select all</button>
+          <button class="btn btn-ghost btn-sm" onclick="selectNoneEvents()">Clear</button>
+        </div>
+      </div>
+      <div id="events-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:20px;">
+        <button class="btn btn-teal" onclick="importSelected()">Add selected to invoice →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 2: ASSIGNMENTS -->
+  <div id="panel-assignments" style="display:none;">
+    <div class="card">
+      <div class="card-hdr">
+        <div><div class="card-title">Assignments</div><div class="card-sub">Billing calculated from your rate cards.</div></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline btn-sm" onclick="showPanel('panel-connect');setStep(1);">← Back to calendar</button>
+          <button class="btn btn-outline btn-sm" onclick="openAddModal()">+ Add manually</button>
+        </div>
+      </div>
+
+      <!-- Column headers -->
+      <div style="display:grid;grid-template-columns:18px 100px 1fr 85px 75px 85px 95px 56px;gap:10px;padding:4px 14px 10px;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);">
+        <span></span><span>Date</span><span>Assignment</span><span>Time</span><span>Billed</span><span>Mileage</span><span>Total</span><span></span>
+      </div>
+
+      <div id="assignments-list"></div>
+
+      <div id="sum-bar-wrap" style="display:none;">
+        <div class="sum-bar">
+          <div class="sum-item"><div class="sum-lbl">Assignments</div><div class="sum-val w" id="s-count">0</div></div>
+          <div class="sum-item"><div class="sum-lbl">Billable hours</div><div class="sum-val w" id="s-hours">0.00</div></div>
+          <div class="sum-item"><div class="sum-lbl">Mileage</div><div class="sum-val w" id="s-miles">$0.00</div></div>
+          <div class="sum-item"><div class="sum-lbl">Invoice total</div><div class="sum-val" id="s-total">$0.00</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;">
+      <button class="btn btn-teal" onclick="goToStep3()">Review invoice →</button>
+    </div>
+  </div>
+
+  <!-- STEP 3: INVOICE DETAILS + PREVIEW -->
+  <div id="panel-invoice" style="display:none;">
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">Invoice details</div>
+        <button class="btn btn-outline btn-sm" onclick="showPanel('panel-assignments');setStep(2);">← Back</button>
+      </div>
+      <div class="form-grid g3">
+        <div class="fg"><label>Bill to</label><input type="text" id="inv-client" placeholder="Agency name"></div>
+        <div class="fg"><label>Billing email</label><input type="email" id="inv-email" placeholder="billing@agency.com"></div>
+        <div class="fg"><label>Invoice number</label><input type="text" id="inv-num"></div>
+        <div class="fg"><label>Invoice date</label><input type="date" id="inv-date"></div>
+        <div class="fg"><label>Due date</label><input type="date" id="inv-due"></div>
+        <div class="fg"><label>Payment terms</label>
+          <select id="inv-terms">
+            <option>Net 30</option><option>Net 15</option><option>Due on receipt</option><option>Net 45</option>
+          </select>
+        </div>
+        <div class="fg full"><label>Payment instructions</label>
+          <textarea id="inv-payment" placeholder="Zelle: your@email.com&#10;Check payable to: Claudia Marroquin"></textarea>
+        </div>
+        <div class="fg full"><label>Notes</label>
+          <textarea id="inv-notes" placeholder="Thank you for your continued business."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="inv-wrap" id="invoice-preview"></div>
+
+    <div class="action-bar">
+      <button class="btn btn-outline" onclick="renderInvoice()">↺ Refresh preview</button>
+      <button class="btn btn-outline" onclick="window.print()">🖨 Print / Save PDF</button>
+      <button class="btn btn-success" onclick="markSent()">✓ Mark sent &amp; save</button>
+    </div>
+  </div>
+
+</div><!-- /page-invoice -->
+
+<!-- ══════════════════════════════════════════
+     PAGE: CLIENTS
+══════════════════════════════════════════ -->
+<div class="page" id="page-clients">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:12px;">
+    <div><div class="page-title">Client Rate Cards</div><div class="page-sub">Rates, minimums, mileage, and billing contacts — set once, used everywhere.</div></div>
+    <button class="btn btn-teal" onclick="openClientModal()">+ Add client</button>
+  </div>
+  <div class="client-grid" id="client-grid">
+    <div class="empty" style="grid-column:1/-1">
+      <div class="empty-icon">🏢</div>
+      <h3>No clients yet</h3>
+      <p>Add your first agency or client to build their rate card.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: HISTORY
+══════════════════════════════════════════ -->
+<div class="page" id="page-history">
+  <div class="page-title">Invoice History</div>
+  <div class="page-sub">All invoices you've sent, for your records.</div>
+  <div class="card">
+    <div class="hist-row hdr-row"><span>Invoice #</span><span>Client</span><span>Date sent</span><span>Items</span><span style="text-align:right">Total</span></div>
+    <div id="history-list">
+      <div class="empty"><div class="empty-icon">📁</div><h3>No invoices yet</h3><p>Sent invoices will appear here.</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PAGE: SETUP GUIDE
+══════════════════════════════════════════ -->
+<div class="page" id="page-setup">
+  <div class="page-title">Setup Guide</div>
+  <div class="page-sub">Get Google Calendar sync working in about 10 minutes.</div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:4px;">Part 1 — Host this app online (free)</div>
+    <div class="card-sub" style="margin-bottom:20px;">Google's OAuth requires a live URL. GitHub Pages is free and takes 5 minutes.</div>
+
+    <div class="setup-step">
+      <div class="setup-num">1</div>
+      <div><h4>Create a free GitHub account</h4><p>Go to <strong>github.com</strong> and sign up. It's free. You don't need to know how to code.</p></div>
+    </div>
+    <div class="setup-step">
+      <div class="setup-num">2</div>
+      <div><h4>Create a new repository</h4><p>Click the <strong>+</strong> icon → New repository. Name it <code>mas-invoices</code>. Set it to <strong>Public</strong>. Check "Add a README file." Click Create.</p></div>
+    </div>
+    <div class="setup-step">
+      <div class="setup-num">3</div>
+      <div><h4>Upload this file</h4><p>Click <strong>Add file → Upload files</strong>. Drag this HTML file in. Name it <code>index.html</code>. Click Commit changes.</p></div>
+    </div>
+    <div class="setup-step">
+      <div class="setup-num">4</div>
+      <div><h4>Enable GitHub Pages</h4><p>Go to Settings → Pages. Under Source, select <strong>main branch</strong>. Click Save. Your app will be live at <code>https://[your-username].github.io/mas-invoices</code> in 2 minutes.</p></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:4px;">Part 2 — Connect Google Calendar API (free)</div>
+    <div class="card-sub" style="margin-bottom:20px;">This lets the app read your calendar events securely.</div>
+
+    <div class="setup-step">
+      <div class="setup-num">1</div>
+      <div><h4>Go to Google Cloud Console</h4><p>Visit <strong>console.cloud.google.com</strong> and sign in with any Google account. It's free.</p></div>
+    </div>
+    <div class="setup-step">
+      <div class="setup-num">2</div>
+      <div><h4>Create a new project</h4><p>Click the project dropdown at the top → New Project. Name it <code>MAS Invoices</code>. Click Create.</p></div>
+    </div>
+    <div class="setup-step">
+      <div class="setup-num">3</div>
+      <div><h4>Enable the Calendar API</h4><p>Go to <strong>APIs & Services → Library</strong>. Search for "Google Calendar API." Click it → Enable.</p></div>
+    </div>
+    <div class="setup-step">
+      <div class="setup-num">4</div>
+      <div><h4>Create OAuth credentials</h4><p>Go to <strong>APIs & Services → Credentials</strong>. Click Create Credentials → OAuth Client ID. Choose <strong>Web application</strong>. Under Authorized JavaScript origins, add your GitHub Pages URL. Click Create. Copy your <strong>Client ID</strong>.</p></div>
+    </div>
+    <div class="setup-step">
+      <div class="setup-num">5</div>
+      <div><h4>Paste your Client ID into this app</h4><p>Open this HTML file in a text editor. Find the line that says <code>YOUR_GOOGLE_CLIENT_ID</code> and replace it with the Client ID you just copied. Re-upload to GitHub.</p></div>
+    </div>
+    <div class="setup-step">
+      <div class="setup-num">6</div>
+      <div><h4>Add yourself as a test user</h4><p>In Google Cloud, go to <strong>APIs & Services → OAuth consent screen</strong>. Scroll to Test users. Add the Gmail address your calendar is on. Save.</p></div>
+    </div>
+
+    <div class="info info-teal" style="margin-top:16px;">
+      <strong>Need help with any step?</strong> Come back to Claude and say "Help me with setup step [number]" — I'll walk you through it with screenshots.
+    </div>
+  </div>
+</div>
+
+</div><!-- /app -->
+
+<!-- ══════════════════════════════════════════
+     MODAL: ADD / EDIT ASSIGNMENT
+══════════════════════════════════════════ -->
+<div class="modal-bg" id="assign-modal" style="display:none" onclick="if(event.target===this)closeModal('assign-modal')">
+<div class="modal">
+  <div class="modal-title" id="assign-modal-title">Add assignment</div>
+  <input type="hidden" id="edit-assign-id">
+  <div class="form-grid g2" style="margin-bottom:14px;">
+    <div class="fg full"><label>Client / Agency</label>
+      <select id="m-client" onchange="onClientChange()">
+        <option value="">— Select client —</option>
+      </select>
+    </div>
+    <div class="fg full"><label>Assignment type</label>
+      <select id="m-type" onchange="onTypeChange()">
+        <option value="">— Select type —</option>
+      </select>
+    </div>
+  </div>
+  <div class="info info-teal" id="m-rate-info" style="display:none;margin-bottom:14px;"></div>
+  <div class="form-grid g2" style="margin-bottom:14px;">
+    <div class="fg"><label>Date</label><input type="date" id="m-date"></div>
+    <div class="fg"><label>Patient name</label><input type="text" id="m-patient" placeholder="First Last"></div>
+    <div class="fg"><label>Location / Hospital</label><input type="text" id="m-location" placeholder="Good Samaritan Hospital"></div>
+    <div class="fg"><label>PO number (if applicable)</label><input type="text" id="m-po" placeholder="Optional"></div>
+    <div class="fg"><label>Start time</label><input type="time" id="m-start" oninput="calcBilling()"></div>
+    <div class="fg"><label>End time</label><input type="time" id="m-end" oninput="calcBilling()"></div>
+  </div>
+  <div class="info info-green" id="m-billing-preview" style="display:none;margin-bottom:14px;"></div>
+  <div class="form-grid g2">
+    <div class="fg"><label>Miles traveled</label><input type="number" id="m-miles" placeholder="0" min="0" step="1" oninput="calcBilling()"></div>
+    <div class="fg"><label>Notes</label><input type="text" id="m-notes" placeholder="Optional"></div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeModal('assign-modal')">Cancel</button>
+    <button class="btn btn-teal" onclick="saveAssignment()">Save assignment</button>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     MODAL: ADD / EDIT CLIENT
+══════════════════════════════════════════ -->
+<div class="modal-bg" id="client-modal" style="display:none" onclick="if(event.target===this)closeModal('client-modal')">
+<div class="modal">
+  <div class="modal-title" id="client-modal-title">Add client</div>
+  <input type="hidden" id="edit-client-id">
+  <div class="form-grid g2" style="margin-bottom:20px;">
+    <div class="fg"><label>Agency / Client name</label><input type="text" id="c-name" placeholder="Valley Medical Group"></div>
+    <div class="fg"><label>Billing email</label><input type="email" id="c-email" placeholder="billing@agency.com"></div>
+    <div class="fg"><label>Billing contact name</label><input type="text" id="c-contact" placeholder="Accounts Payable"></div>
+    <div class="fg"><label>Mileage rate ($/mile) — 0 if none</label>
+      <div class="input-pfx"><span>$</span><input type="number" id="c-mileage" placeholder="0.00" min="0" step="0.01"></div>
+    </div>
+    <div class="fg full"><label>Address (optional)</label><input type="text" id="c-address"></div>
+  </div>
+  <div class="divider"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+    <div><div style="font-weight:600;font-size:14px;">Assignment types &amp; rates</div>
+    <div style="font-size:12px;color:var(--ink3);margin-top:2px;">Each type can have its own rate and minimum hours.</div></div>
+    <button class="btn btn-outline btn-sm" onclick="addRateRow()">+ Add type</button>
+  </div>
+  <div id="rate-rows"></div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeModal('client-modal')">Cancel</button>
+    <button class="btn btn-teal" onclick="saveClient()">Save client</button>
+  </div>
+</div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"><span id="t-icon">✓</span><span id="t-msg">Saved</span></div>
+
+<script>
+// ── CONFIG ────────────────────────────────────────────────
+const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID'; // Replace after Google Cloud setup
+const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly';
+
+// ── STATE ─────────────────────────────────────────────────
+let clients = [];
+let assignments = [];
+let importedEvents = [];
+let history = [];
+let invCounter = 1;
+let editingAssignId = null;
+let editingClientId = null;
+let tokenClient = null;
+let accessToken = null;
+let connectedEmail = null;
+
+// ── BILLING CORE ──────────────────────────────────────────
+function calcBillableHours(startStr, endStr, minHours) {
+  if (!startStr || !endStr) return { actualMins:0, billableMins:0, billableHours:0, overMin:false };
+  const [sh,sm] = startStr.split(':').map(Number);
+  const [eh,em] = endStr.split(':').map(Number);
+  let actualMins = (eh*60+em)-(sh*60+sm);
+  if (actualMins < 0) actualMins += 24*60;
+  const minMins = minHours*60;
+  let billableMins;
+  if (actualMins <= minMins) {
+    billableMins = minMins;
+  } else {
+    billableMins = Math.ceil(actualMins/15)*15;
+  }
+  return { actualMins, billableMins, billableHours: billableMins/60, overMin: actualMins > minMins };
+}
+
+function fmtMins(mins) {
+  const h=Math.floor(mins/60), m=mins%60;
+  return m===0 ? h+'h' : h+'h '+m+'m';
+}
+
+// ── GOOGLE CALENDAR OAUTH ─────────────────────────────────
+function loadGoogleAPI() {
+  if (GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID') return;
+  const script = document.createElement('script');
+  script.src = 'https://accounts.google.com/gsi/client';
+  script.onload = initGoogleClient;
+  document.head.appendChild(script);
+}
+
+function initGoogleClient() {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: SCOPES,
+    callback: (resp) => {
+      if (resp.error) { showToast('⚠️','Google sign-in failed'); return; }
+      accessToken = resp.access_token;
+      fetchUserInfo();
+    }
+  });
+}
+
+function connectGoogle() {
+  if (GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID') {
+    showToast('⚙️','See Setup Guide tab to configure Google Calendar');
+    showPage('page-setup');
+    return;
+  }
+  tokenClient.requestAccessToken();
+}
+
+function fetchUserInfo() {
+  fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    headers: { Authorization: 'Bearer '+accessToken }
+  }).then(r=>r.json()).then(info => {
+    connectedEmail = info.email;
+    showConnectedState(info.name||info.email, info.email);
+  });
+}
+
+function showConnectedState(name, email) {
+  document.getElementById('gcal-box').style.display='none';
+  document.getElementById('gcal-connected-state').style.display='block';
+  document.getElementById('gcal-account-name').textContent = name;
+  document.getElementById('gcal-account-email').textContent = email;
+  const today = todayStr();
+  const monthAgo = addDays(today,-30);
+  document.getElementById('range-start').value = monthAgo;
+  document.getElementById('range-end').value = today;
+}
+
+function disconnectGoogle() {
+  accessToken=null; connectedEmail=null;
+  document.getElementById('gcal-box').style.display='block';
+  document.getElementById('gcal-connected-state').style.display='none';
+  document.getElementById('events-card').style.display='none';
+}
+
+function fetchCalendarEvents() {
+  if (!accessToken) return;
+  const start = document.getElementById('range-start').value;
+  const end = document.getElementById('range-end').value;
+  if (!start||!end) { showToast('⚠️','Select a date range'); return; }
+
+  showToast('🔄','Fetching events…');
+  const tMin = new Date(start+'T00:00:00').toISOString();
+  const tMax = new Date(end+'T23:59:59').toISOString();
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(tMin)}&timeMax=${encodeURIComponent(tMax)}&singleEvents=true&orderBy=startTime&maxResults=250`;
+
+  fetch(url, { headers:{Authorization:'Bearer '+accessToken} })
+    .then(r=>r.json())
+    .then(data => {
+      const events = data.items||[];
+      importedEvents = events.map(parseCalendarEvent).filter(Boolean);
+      renderImportedEvents();
+      showToast('✅', importedEvents.length+' assignments found');
+    })
+    .catch(()=>showToast('⚠️','Failed to fetch — check connection'));
+}
+
+// ── PARSE CALENDAR EVENT ──────────────────────────────────
+// Expected title: "Agency — Type — Patient Name — PO:12345"
+function parseCalendarEvent(ev) {
+  if (!ev.start || !ev.summary) return null;
+  const title = ev.summary.trim();
+  const parts = title.split(/\s*—\s*/);
+  if (parts.length < 3) return null; // must have at least agency, type, patient
+
+  const agencyName = parts[0].trim();
+  const assignType = parts[1].trim();
+  const patientName = parts[2].trim();
+  let po = '';
+  if (parts[3] && parts[3].toUpperCase().startsWith('PO:')) {
+    po = parts[3].replace(/^PO:/i,'').trim();
+  }
+
+  const date = (ev.start.date || ev.start.dateTime||'').split('T')[0];
+  const startTime = ev.start.dateTime ? ev.start.dateTime.split('T')[1].slice(0,5) : '';
+  const endTime = ev.end?.dateTime ? ev.end.dateTime.split('T')[1].slice(0,5) : '';
+  const location = ev.location||'';
+
+  // Parse miles from description
+  let miles = 0;
+  const desc = ev.description||'';
+  const milesMatch = desc.match(/miles?\s*:\s*(\d+(\.\d+)?)/i);
+  if (milesMatch) miles = parseFloat(milesMatch[1]);
+
+  // Match to client
+  const client = clients.find(c=>c.name.toLowerCase()===agencyName.toLowerCase()
+    || agencyName.toLowerCase().includes(c.name.toLowerCase())
+    || c.name.toLowerCase().includes(agencyName.toLowerCase()));
+
+  let matched = !!client;
+  let rateInfo = null;
+  let billing = null;
+
+  if (client && assignType) {
+    rateInfo = client.rates.find(r=>r.type.toLowerCase()===assignType.toLowerCase()
+      || assignType.toLowerCase().includes(r.type.toLowerCase())
+      || r.type.toLowerCase().includes(assignType.toLowerCase()));
+    if (rateInfo && startTime && endTime) {
+      billing = calcBillableHours(startTime, endTime, rateInfo.minHours);
+    }
+  }
+
+  return {
+    id: ev.id||uid(),
+    agencyName, assignType, patientName, po,
+    date, startTime, endTime, location, miles,
+    clientId: client?.id||null,
+    clientName: client?.name||agencyName,
+    clientEmail: client?.email||'',
+    rateInfo, billing,
+    matched,
+    raw: ev
+  };
+}
+
+function renderImportedEvents() {
+  const card = document.getElementById('events-card');
+  const list = document.getElementById('events-list');
+  card.style.display='block';
+
+  if (!importedEvents.length) {
+    list.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div><h3>No matching events</h3><p>Make sure your calendar events use the required format.</p></div>`;
+    return;
+  }
+
+  document.getElementById('events-sub').textContent = importedEvents.length+' assignments found — select which to invoice.';
+
+  list.innerHTML = importedEvents.map(ev => {
+    const hasError = !ev.matched || !ev.rateInfo || !ev.startTime;
+    const errMsg = !ev.matched ? 'Agency "'+ev.agencyName+'" not in your rate cards'
+      : !ev.rateInfo ? 'Type "'+ev.assignType+'" not in rate card for '+ev.clientName
+      : !ev.startTime ? 'Event has no start/end time'
+      : '';
+
+    const amt = ev.billing && ev.rateInfo
+      ? '$'+(ev.billing.billableHours*ev.rateInfo.rate + ev.miles*(ev.rateInfo.mileageRate||0)).toFixed(2)
+      : '—';
+
+    return `<div class="import-event ${hasError?'error':''}" id="iev-${ev.id}">
+      <input type="checkbox" id="ievchk-${ev.id}" ${hasError?'disabled':''} checked style="width:15px;height:15px;accent-color:var(--teal);" onchange="this.closest('.import-event').classList.toggle('checked',this.checked)">
+      <div>
+        <div class="ie-main">${ev.clientName} — ${ev.assignType}</div>
+        <div class="ie-sub">
+          ${fmtDateShort(ev.date)} · ${ev.startTime||'?'}–${ev.endTime||'?'} · ${ev.patientName}
+          ${ev.po?' · PO: '+ev.po:''} · ${ev.location||'No location'}
+          ${ev.miles>0?' · '+ev.miles+' mi':''}
+          ${hasError?'<br><span style="color:var(--red);font-weight:500">⚠ '+errMsg+'</span>':''}
+        </div>
+      </div>
+      <div class="ie-amt">${amt}</div>
+    </div>`;
+  }).join('');
+
+  // Auto-check matched ones
+  importedEvents.forEach(ev=>{
+    const chk = document.getElementById('ievchk-'+ev.id);
+    if (chk && !chk.disabled) {
+      chk.checked=true;
+      document.getElementById('iev-'+ev.id).classList.add('checked');
+    }
+  });
+}
+
+function selectAllEvents() {
+  importedEvents.forEach(ev=>{
+    const chk=document.getElementById('ievchk-'+ev.id);
+    if(chk&&!chk.disabled){chk.checked=true;document.getElementById('iev-'+ev.id).classList.add('checked');}
+  });
+}
+function selectNoneEvents() {
+  importedEvents.forEach(ev=>{
+    const chk=document.getElementById('ievchk-'+ev.id);
+    if(chk){chk.checked=false;document.getElementById('iev-'+ev.id).classList.remove('checked');}
+  });
+}
+
+function importSelected() {
+  const selected = importedEvents.filter(ev=>{
+    const chk=document.getElementById('ievchk-'+ev.id);
+    return chk&&chk.checked&&!chk.disabled;
+  });
+  if (!selected.length){showToast('⚠️','Select at least one assignment');return;}
+
+  selected.forEach(ev=>{
+    if (!ev.rateInfo||!ev.billing) return;
+    const serviceAmt = ev.billing.billableHours * ev.rateInfo.rate;
+    const client = clients.find(c=>c.id===ev.clientId);
+    const mileageAmt = ev.miles * (client?.mileageRate||0);
+    assignments.push({
+      id:uid(),
+      clientId:ev.clientId, clientName:ev.clientName, clientEmail:ev.clientEmail,
+      type:ev.assignType, patientName:ev.patientName, po:ev.po,
+      date:ev.date, location:ev.location,
+      start:ev.startTime, end:ev.endTime,
+      billableHours:ev.billing.billableHours,
+      actualMins:ev.billing.actualMins,
+      billableMins:ev.billing.billableMins,
+      overMin:ev.billing.overMin,
+      rate:ev.rateInfo.rate, minHours:ev.rateInfo.minHours,
+      serviceAmt, miles:ev.miles,
+      mileageRate:client?.mileageRate||0, mileageAmt,
+      total:serviceAmt+mileageAmt, notes:''
+    });
+  });
+
+  renderAssignments();
+  showPanel('panel-assignments');
+  setStep(2);
+  showToast('✅', selected.length+' assignments added');
+}
+
+// ── ASSIGNMENT MODAL ──────────────────────────────────────
+function openAddModal(id) {
+  editingAssignId=id||null;
+  document.getElementById('assign-modal-title').textContent=id?'Edit assignment':'Add manually';
+  const sel=document.getElementById('m-client');
+  sel.innerHTML='<option value="">— Select client —</option>'+clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  document.getElementById('m-type').innerHTML='<option value="">— Select type —</option>';
+  document.getElementById('m-rate-info').style.display='none';
+  document.getElementById('m-billing-preview').style.display='none';
+
+  if (id) {
+    const a=assignments.find(x=>x.id===id);
+    if(a){
+      sel.value=a.clientId; onClientChange();
+      setTimeout(()=>{
+        document.getElementById('m-type').value=a.type; onTypeChange();
+        document.getElementById('m-date').value=a.date;
+        document.getElementById('m-patient').value=a.patientName||'';
+        document.getElementById('m-location').value=a.location;
+        document.getElementById('m-po').value=a.po||'';
+        document.getElementById('m-start').value=a.start;
+        document.getElementById('m-end').value=a.end;
+        document.getElementById('m-miles').value=a.miles||0;
+        document.getElementById('m-notes').value=a.notes||'';
+        calcBilling();
+      },50);
+    }
+  } else {
+    document.getElementById('m-date').value=todayStr();
+    ['m-patient','m-location','m-po','m-start','m-end','m-notes'].forEach(x=>document.getElementById(x).value='');
+    document.getElementById('m-miles').value=0;
+  }
+  document.getElementById('assign-modal').style.display='flex';
+}
+
+function onClientChange() {
+  const cid=document.getElementById('m-client').value;
+  const client=clients.find(c=>c.id===cid);
+  const typeSel=document.getElementById('m-type');
+  if(!client){typeSel.innerHTML='<option value="">— Select type —</option>';return;}
+  typeSel.innerHTML='<option value="">— Select type —</option>'+client.rates.map(r=>`<option value="${r.type}">${r.type}</option>`).join('');
+  document.getElementById('m-rate-info').style.display='none';
+  document.getElementById('m-billing-preview').style.display='none';
+}
+
+function onTypeChange() {
+  const cid=document.getElementById('m-client').value;
+  const type=document.getElementById('m-type').value;
+  const client=clients.find(c=>c.id===cid);
+  if(!client||!type) return;
+  const rate=client.rates.find(r=>r.type===type);
+  if(!rate) return;
+  const info=document.getElementById('m-rate-info');
+  info.style.display='block';
+  info.innerHTML=`<strong>${type}</strong> &nbsp;·&nbsp; $${rate.rate}/hr &nbsp;·&nbsp; ${rate.minHours}hr minimum ($${(rate.rate*rate.minHours).toFixed(2)} guaranteed)${client.mileageRate>0?' &nbsp;·&nbsp; Mileage: $'+client.mileageRate+'/mi':''}`;
+  calcBilling();
+}
+
+function calcBilling() {
+  const cid=document.getElementById('m-client').value;
+  const type=document.getElementById('m-type').value;
+  const start=document.getElementById('m-start').value;
+  const end=document.getElementById('m-end').value;
+  const miles=parseFloat(document.getElementById('m-miles').value)||0;
+  const client=clients.find(c=>c.id===cid);
+  if(!client||!type||!start||!end){document.getElementById('m-billing-preview').style.display='none';return;}
+  const rate=client.rates.find(r=>r.type===type);
+  if(!rate) return;
+  const b=calcBillableHours(start,end,rate.minHours);
+  const serviceAmt=b.billableHours*rate.rate;
+  const mileageAmt=miles*(client.mileageRate||0);
+  const preview=document.getElementById('m-billing-preview');
+  preview.style.display='block';
+  preview.innerHTML=`<strong>Billing preview</strong><br>
+    Actual: ${fmtMins(b.actualMins)} → Billable: ${fmtMins(b.billableMins)}
+    ${b.overMin?'<span style="color:var(--green);font-weight:500"> (rounded up to nearest 15 min)</span>':'<span style="color:var(--ink3)"> (minimum applied)</span>'}<br>
+    Service: ${b.billableHours%1===0?b.billableHours:b.billableHours.toFixed(2)}h × $${rate.rate} = <strong>$${serviceAmt.toFixed(2)}</strong>
+    ${miles>0&&client.mileageRate>0?`<br>Mileage: ${miles} mi × $${client.mileageRate} = <strong>$${mileageAmt.toFixed(2)}</strong>`:''}
+    <br><strong style="font-size:14px;color:var(--green)">Total: $${(serviceAmt+mileageAmt).toFixed(2)}</strong>`;
+}
+
+function saveAssignment() {
+  const cid=document.getElementById('m-client').value;
+  const type=document.getElementById('m-type').value;
+  const date=document.getElementById('m-date').value;
+  const patientName=document.getElementById('m-patient').value.trim();
+  const location=document.getElementById('m-location').value.trim();
+  const po=document.getElementById('m-po').value.trim();
+  const start=document.getElementById('m-start').value;
+  const end=document.getElementById('m-end').value;
+  const miles=parseFloat(document.getElementById('m-miles').value)||0;
+  if(!cid||!type||!date||!patientName||!start||!end){showToast('⚠️','Fill all required fields including patient name');return;}
+  const client=clients.find(c=>c.id===cid);
+  const rate=client.rates.find(r=>r.type===type);
+  const b=calcBillableHours(start,end,rate.minHours);
+  const serviceAmt=b.billableHours*rate.rate;
+  const mileageAmt=miles*(client.mileageRate||0);
+  const a={
+    id:editingAssignId||uid(),
+    clientId:cid, clientName:client.name, clientEmail:client.email,
+    type, patientName, po, date, location, start, end,
+    billableHours:b.billableHours, actualMins:b.actualMins,
+    billableMins:b.billableMins, overMin:b.overMin,
+    rate:rate.rate, minHours:rate.minHours,
+    serviceAmt, miles, mileageRate:client.mileageRate||0,
+    mileageAmt, total:serviceAmt+mileageAmt,
+    notes:document.getElementById('m-notes').value
+  };
+  if(editingAssignId) assignments=assignments.map(x=>x.id===editingAssignId?a:x);
+  else assignments.push(a);
+  closeModal('assign-modal');
+  renderAssignments();
+  showPanel('panel-assignments');
+  setStep(2);
+  showToast('✅','Assignment saved');
+}
+
+// ── RENDER ASSIGNMENTS ────────────────────────────────────
+function renderAssignments() {
+  const el=document.getElementById('assignments-list');
+  const sb=document.getElementById('sum-bar-wrap');
+  if(!assignments.length){
+    el.innerHTML=`<div class="empty"><div class="empty-icon">📋</div><h3>No assignments yet</h3><p>Import from Google Calendar or add manually.</p></div>`;
+    sb.style.display='none'; return;
+  }
+  el.innerHTML=assignments.map(a=>{
+    const dateStr=fmtDateShort(a.date);
+    const tagCls=typeTag(a.type);
+    return `<div class="assign-row selected" id="ar-${a.id}">
+      <input type="checkbox" id="chk-${a.id}" checked onchange="document.getElementById('ar-${a.id}').classList.toggle('selected',this.checked);updateSummary()">
+      <div class="a-date">${dateStr}</div>
+      <div>
+        <div class="a-main">${a.clientName} — <span class="badge ${tagCls}">${a.type}</span></div>
+        <div class="a-sub">${a.patientName}${a.po?' · PO: '+a.po:''} · ${a.location||'—'}</div>
+      </div>
+      <div class="a-time">${a.start}–${a.end}</div>
+      <div class="a-calc">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}h<br><span style="font-size:11px">$${a.rate}/hr</span></div>
+      <div class="a-calc">${a.mileageAmt>0?'$'+a.mileageAmt.toFixed(2):'—'}</div>
+      <div class="a-amt">$${a.total.toFixed(2)}</div>
+      <div class="a-actions">
+        <button class="btn btn-ghost btn-xs" onclick="openAddModal('${a.id}')" title="Edit">✎</button>
+        <button class="btn btn-ghost btn-xs" onclick="removeA('${a.id}')" title="Remove">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+  sb.style.display='block';
+  updateSummary();
+}
+
+function updateSummary() {
+  const sel=getSelected();
+  document.getElementById('s-count').textContent=sel.length;
+  document.getElementById('s-hours').textContent=sel.reduce((s,a)=>s+a.billableHours,0).toFixed(2);
+  document.getElementById('s-miles').textContent='$'+sel.reduce((s,a)=>s+a.mileageAmt,0).toFixed(2);
+  document.getElementById('s-total').textContent='$'+sel.reduce((s,a)=>s+a.total,0).toFixed(2);
+}
+
+function getSelected() {
+  return assignments.filter(a=>{const c=document.getElementById('chk-'+a.id);return c&&c.checked;});
+}
+
+function removeA(id){assignments=assignments.filter(a=>a.id!==id);renderAssignments();}
+
+// ── INVOICE GENERATION ────────────────────────────────────
+function goToStep3() {
+  const sel=getSelected();
+  if(!sel.length){showToast('⚠️','Select at least one assignment');return;}
+  showPanel('panel-invoice');
+  setStep(3);
+  // Auto-fill
+  const top=sel[0];
+  if(!document.getElementById('inv-client').value) document.getElementById('inv-client').value=top.clientName;
+  if(!document.getElementById('inv-email').value) document.getElementById('inv-email').value=top.clientEmail||'';
+  if(!document.getElementById('inv-date').value) document.getElementById('inv-date').value=todayStr();
+  if(!document.getElementById('inv-due').value) document.getElementById('inv-due').value=addDays(todayStr(),30);
+  if(!document.getElementById('inv-num').value) document.getElementById('inv-num').value=`MAS-${new Date().getFullYear()}-${String(invCounter).padStart(3,'0')}`;
+  renderInvoice();
+  ['inv-client','inv-email','inv-num','inv-date','inv-due','inv-terms','inv-payment','inv-notes'].forEach(id=>{
+    document.getElementById(id).addEventListener('input',renderInvoice);
+    document.getElementById(id).addEventListener('change',renderInvoice);
+  });
+}
+
+function renderInvoice() {
+  const sel=getSelected();
+  const clientName=document.getElementById('inv-client').value||'Client';
+  const clientEmail=document.getElementById('inv-email').value||'';
+  const invNum=document.getElementById('inv-num').value||'MAS-001';
+  const invDate=document.getElementById('inv-date').value||todayStr();
+  const invDue=document.getElementById('inv-due').value||addDays(invDate,30);
+  const terms=document.getElementById('inv-terms').value||'Net 30';
+  const payment=document.getElementById('inv-payment').value||'';
+  const notes=document.getElementById('inv-notes').value||'Thank you for your continued business.';
+
+  const serviceTotal=sel.reduce((s,a)=>s+a.serviceAmt,0);
+  const mileageTotal=sel.reduce((s,a)=>s+a.mileageAmt,0);
+  const grandTotal=serviceTotal+mileageTotal;
+
+  const rows=sel.map(a=>{
+    const billNote=a.overMin
+      ? `Actual: ${fmtMins(a.actualMins)}, billed: ${fmtMins(a.billableMins)} (15-min increments)`
+      : `${a.minHours}hr minimum guaranteed`;
+    return `<tr>
+      <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
+      <td>
+        <div style="font-weight:500">${a.type} — ${a.patientName}</div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${billNote}${a.po?' · PO: '+a.po:''}</div>
+      </td>
+      <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
+      <td class="right">$${a.rate.toFixed(2)}</td>
+      <td class="right" style="font-weight:500">$${a.serviceAmt.toFixed(2)}</td>
+    </tr>
+    ${a.mileageAmt>0?`<tr>
+      <td></td>
+      <td style="font-size:12px;color:var(--ink3)">Mileage — ${a.miles} mi @ $${a.mileageRate}/mi</td>
+      <td></td><td></td>
+      <td class="right" style="font-weight:500">$${a.mileageAmt.toFixed(2)}</td>
+    </tr>`:''}`;
+  }).join('');
+
+  const paymentLines=(payment||'').split('\n').filter(Boolean).join('<br>');
+
+  document.getElementById('invoice-preview').innerHTML=`
+    <div class="inv-hdr">
+      <div>
+        <div class="inv-logo">MÁS Professional Services<small>Medical Interpretation Services</small></div>
+        <div style="margin-top:16px;font-size:12px;color:#888;line-height:1.9">Claudia Marroquin<br>Morgan Hill, CA</div>
+      </div>
+      <div class="inv-meta">
+        <strong>Invoice</strong>
+        #${invNum}<br>
+        Date: ${fmtDateLong(invDate)}<br>
+        Due: ${fmtDateLong(invDue)}<br>
+        Terms: ${terms}<br>
+        <span style="display:inline-block;margin-top:8px;padding:4px 12px;background:var(--teal);color:white;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em">PENDING</span>
+      </div>
+    </div>
+    <div class="inv-body">
+      <div class="inv-parties">
+        <div>
+          <div class="inv-plbl">Billed to</div>
+          <div class="inv-pname">${clientName}</div>
+          <div class="inv-pdet">${clientEmail}</div>
+        </div>
+        <div>
+          <div class="inv-plbl">Payment</div>
+          <div class="inv-pname">${terms}</div>
+          <div class="inv-pdet">${paymentLines}</div>
+        </div>
+      </div>
+      <table class="inv-tbl">
+        <thead><tr>
+          <th style="width:110px">Date</th>
+          <th>Description</th>
+          <th class="right" style="width:65px">Hours</th>
+          <th class="right" style="width:75px">Rate</th>
+          <th class="right" style="width:90px">Amount</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="inv-totals">
+        <div class="inv-trow"><span>Interpretation services</span><span>$${serviceTotal.toFixed(2)}</span></div>
+        ${mileageTotal>0?`<div class="inv-trow"><span>Mileage reimbursement</span><span>$${mileageTotal.toFixed(2)}</span></div>`:''}
+        <div class="inv-trow grand"><span>Total Due</span><span>$${grandTotal.toFixed(2)}</span></div>
+      </div>
+      ${notes?`<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${notes}</div>`:''}
+    </div>
+    <div class="inv-foot">
+      <div class="inv-foot-note">MÁS Professional Services · Claudia Marroquin</div>
+      <div class="inv-foot-note">Thank you for your business.</div>
+    </div>`;
+}
+
+function markSent() {
+  const sel=getSelected();
+  const total=sel.reduce((s,a)=>s+a.total,0);
+  history.unshift({
+    id:uid(),
+    num:document.getElementById('inv-num').value,
+    client:document.getElementById('inv-client').value,
+    date:todayStr(), total, count:sel.length
+  });
+  invCounter++;
+  assignments=assignments.filter(a=>!sel.find(s=>s.id===a.id));
+  renderAssignments();
+  renderHistory();
+  showPanel('panel-connect');
+  setStep(1);
+  ['inv-client','inv-email','inv-num','inv-due','inv-notes','inv-payment'].forEach(x=>document.getElementById(x).value='');
+  document.getElementById('inv-date').value='';
+  showToast('✅','Invoice saved to history');
+}
+
+// ── CLIENT MODAL ──────────────────────────────────────────
+function openClientModal(id) {
+  editingClientId=id||null;
+  document.getElementById('client-modal-title').textContent=id?'Edit client':'Add client';
+  document.getElementById('rate-rows').innerHTML='';
+  if(id){
+    const c=clients.find(x=>x.id===id);
+    if(c){
+      document.getElementById('c-name').value=c.name;
+      document.getElementById('c-email').value=c.email;
+      document.getElementById('c-contact').value=c.contact||'';
+      document.getElementById('c-mileage').value=c.mileageRate||0;
+      document.getElementById('c-address').value=c.address||'';
+      c.rates.forEach(r=>addRateRow(r));
+    }
+  } else {
+    ['c-name','c-email','c-contact','c-address'].forEach(x=>document.getElementById(x).value='');
+    document.getElementById('c-mileage').value=0;
+    addRateRow();
+  }
+  document.getElementById('client-modal').style.display='flex';
+}
+
+function addRateRow(data) {
+  const id=uid();
+  const div=document.createElement('div');
+  div.id='rr-'+id;
+  div.className='rate-row';
+  div.innerHTML=`
+    <div class="fg"><label>Assignment type</label><input type="text" placeholder="Medical follow-up, Evaluation…" value="${data?.type||''}"></div>
+    <div class="fg"><label>$/hr</label><div class="input-pfx"><span>$</span><input type="number" placeholder="50" min="0" step="0.01" value="${data?.rate||''}"></div></div>
+    <div class="fg"><label>Min hours</label><input type="number" placeholder="2" min="0.25" step="0.25" value="${data?.minHours||''}"></div>
+    <button class="btn btn-danger btn-xs" style="margin-top:18px;" onclick="document.getElementById('rr-${id}').remove()">✕</button>`;
+  document.getElementById('rate-rows').appendChild(div);
+}
+
+function saveClient() {
+  const name=document.getElementById('c-name').value.trim();
+  const email=document.getElementById('c-email').value.trim();
+  if(!name||!email){showToast('⚠️','Name and email required');return;}
+  const rates=[];
+  document.querySelectorAll('#rate-rows .rate-row').forEach(row=>{
+    const ins=row.querySelectorAll('input');
+    const type=ins[0].value.trim();
+    const rate=parseFloat(ins[1].value);
+    const minHours=parseFloat(ins[2].value);
+    if(type&&rate>0&&minHours>0) rates.push({type,rate,minHours});
+  });
+  if(!rates.length){showToast('⚠️','Add at least one assignment type');return;}
+  const c={id:editingClientId||uid(),name,email,contact:document.getElementById('c-contact').value,mileageRate:parseFloat(document.getElementById('c-mileage').value)||0,address:document.getElementById('c-address').value,rates};
+  if(editingClientId) clients=clients.map(x=>x.id===editingClientId?c:x);
+  else clients.push(c);
+  closeModal('client-modal');
+  renderClients();
+  updateClientDropdowns();
+  showToast('✅','Client saved');
+}
+
+function renderClients() {
+  const el=document.getElementById('client-grid');
+  if(!clients.length){el.innerHTML=`<div class="empty" style="grid-column:1/-1"><div class="empty-icon">🏢</div><h3>No clients yet</h3><p>Add your agencies to build their rate cards.</p></div>`;return;}
+  el.innerHTML=clients.map(c=>`
+    <div class="client-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+        <div><div class="client-name">${c.name}</div><div class="client-email">${c.email}</div></div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-outline btn-xs" onclick="openClientModal('${c.id}')">Edit</button>
+          <button class="btn btn-danger btn-xs" onclick="deleteClient('${c.id}')">✕</button>
+        </div>
+      </div>
+      <div class="client-rates">
+        ${c.rates.map(r=>`<span class="badge ${typeTag(r.type)}">${r.type} · $${r.rate}/hr · ${r.minHours}hr min</span>`).join('')}
+        ${c.mileageRate>0?`<span class="badge badge-teal">$${c.mileageRate}/mi</span>`:''}
+      </div>
+    </div>`).join('');
+}
+
+function deleteClient(id){if(confirm('Delete this client?')){clients=clients.filter(c=>c.id!==id);renderClients();updateClientDropdowns();}}
+function updateClientDropdowns(){const s=document.getElementById('m-client');const v=s.value;s.innerHTML='<option value="">— Select client —</option>'+clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');s.value=v;}
+
+// ── HISTORY ───────────────────────────────────────────────
+function renderHistory(){
+  const el=document.getElementById('history-list');
+  if(!history.length){el.innerHTML=`<div class="empty"><div class="empty-icon">📁</div><h3>No invoices yet</h3><p>Sent invoices appear here.</p></div>`;return;}
+  el.innerHTML=history.map(h=>`
+    <div class="hist-row">
+      <span style="font-weight:600">${h.num}</span>
+      <span>${h.client}</span>
+      <span>${fmtDateShort(h.date)}</span>
+      <span>${h.count} items</span>
+      <span style="text-align:right;font-weight:600;color:var(--green)">$${h.total.toFixed(2)}</span>
+    </div>`).join('');
+}
+
+// ── DEMO DATA ─────────────────────────────────────────────
+function loadDemo(){
+  clients=[
+    {id:'c1',name:'Valley Medical Group',email:'billing@valleymedical.com',contact:'Accounts Payable',mileageRate:0.67,address:'Morgan Hill, CA',
+     rates:[{type:'Medical follow-up',rate:35,minHours:2},{type:'Evaluation',rate:50,minHours:3}]},
+    {id:'c2',name:'Bay Area Legal Services',email:'invoices@balegal.com',contact:'Finance Team',mileageRate:0,address:'San Jose, CA',
+     rates:[{type:'Legal deposition',rate:65,minHours:2},{type:'Legal consultation',rate:55,minHours:2}]},
+    {id:'c3',name:'MedStaff Agency',email:'billing@medstaff.com',contact:'AP Department',mileageRate:0.50,address:'Remote',
+     rates:[{type:'Medical appointment',rate:40,minHours:2},{type:'Evaluation',rate:50,minHours:3}]}
+  ];
+  renderClients(); updateClientDropdowns();
+
+  // Simulate imported calendar events
+  importedEvents=[
+    {id:'e1',agencyName:'Valley Medical Group',assignType:'Medical follow-up',patientName:'Maria Garcia',po:'',date:'2026-06-02',startTime:'09:00',endTime:'10:20',location:'Good Samaritan Hospital',miles:12,clientId:'c1',clientName:'Valley Medical Group',clientEmail:'billing@valleymedical.com',rateInfo:{type:'Medical follow-up',rate:35,minHours:2},billing:calcBillableHours('09:00','10:20',2),matched:true},
+    {id:'e2',agencyName:'Bay Area Legal Services',assignType:'Legal deposition',patientName:'John Doe',po:'PO9871',date:'2026-06-03',startTime:'13:00',endTime:'16:15',location:'Santa Clara Superior Court',miles:0,clientId:'c2',clientName:'Bay Area Legal Services',clientEmail:'invoices@balegal.com',rateInfo:{type:'Legal deposition',rate:65,minHours:2},billing:calcBillableHours('13:00','16:15',2),matched:true},
+    {id:'e3',agencyName:'Valley Medical Group',assignType:'Evaluation',patientName:'Ana Torres',po:'PO5521',date:'2026-06-04',startTime:'08:30',endTime:'11:00',location:'Good Samaritan Hospital',miles:12,clientId:'c1',clientName:'Valley Medical Group',clientEmail:'billing@valleymedical.com',rateInfo:{type:'Evaluation',rate:50,minHours:3},billing:calcBillableHours('08:30','11:00',3),matched:true},
+    {id:'e4',agencyName:'MedStaff Agency',assignType:'Medical appointment',patientName:'Luis Ramirez',po:'',date:'2026-06-05',startTime:'10:00',endTime:'10:45',location:'Kaiser Morgan Hill',miles:5,clientId:'c3',clientName:'MedStaff Agency',clientEmail:'billing@medstaff.com',rateInfo:{type:'Medical appointment',rate:40,minHours:2},billing:calcBillableHours('10:00','10:45',2),matched:true}
+  ];
+
+  renderImportedEvents();
+  document.getElementById('events-card').style.display='block';
+  showToast('✅','Demo loaded — select assignments and click import');
+}
+
+// ── NAVIGATION ────────────────────────────────────────────
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  const map={'page-invoice':0,'page-clients':1,'page-history':2,'page-setup':3};
+  document.querySelectorAll('.hdr-tab').forEach((t,i)=>t.classList.toggle('active',i===map[id]));
+}
+
+function showPanel(id){
+  ['panel-connect','panel-assignments','panel-invoice'].forEach(p=>{
+    const el=document.getElementById(p);
+    if(el) el.style.display=p===id?'block':'none';
+  });
+}
+
+function setStep(n){
+  [1,2,3].forEach(i=>{
+    const stp=document.getElementById('stp'+i);
+    const sn=document.getElementById('sn'+i);
+    stp.classList.remove('active','done');
+    if(i<n){stp.classList.add('done');sn.textContent='✓';}
+    else if(i===n){stp.classList.add('active');sn.textContent=i;}
+    else sn.textContent=i;
+  });
+}
+
+function closeModal(id){document.getElementById(id).style.display='none';}
+
+// ── UTILS ─────────────────────────────────────────────────
+function uid(){return Math.random().toString(36).slice(2,9);}
+function todayStr(){return new Date().toISOString().split('T')[0];}
+function addDays(str,n){const d=new Date(str+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().split('T')[0];}
+function fmtDateShort(str){return new Date(str+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});}
+function fmtDateLong(str){return new Date(str+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});}
+function typeTag(t){const m={'Medical follow-up':'badge-medical','Medical appointment':'badge-medical','Evaluation':'badge-eval','Legal deposition':'badge-legal','Legal consultation':'badge-legal'};return m[t]||'badge-general';}
+function showToast(icon,msg){const t=document.getElementById('toast');document.getElementById('t-icon').textContent=icon;document.getElementById('t-msg').textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3200);}
+
+// ── INIT ──────────────────────────────────────────────────
+window.addEventListener('load',()=>{
+  loadGoogleAPI();
+  showPanel('panel-connect');
+  setStep(1);
+});
+</script>
+</body>
+</html>
