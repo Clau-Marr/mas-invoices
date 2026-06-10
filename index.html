@@ -477,7 +477,7 @@ textarea{resize:vertical;min-height:70px;}
     </div>
     <div class="setup-step">
       <div class="setup-num">5</div>
-      <div><h4>Paste your Client ID into this app</h4><p>Open this HTML file in a text editor. Find the line that says <code>YOUR_GOOGLE_CLIENT_ID</code> and replace it with the Client ID you just copied. Re-upload to GitHub.</p></div>
+      <div><h4>Paste your Client ID into this app</h4><p>Open this HTML file in a text editor. Find the line that says <code>566546508985-12fom6evof5isvjmea1nqlfm3pj82aun.apps.googleusercontent.com</code> and replace it with the Client ID you just copied. Re-upload to GitHub.</p></div>
     </div>
     <div class="setup-step">
       <div class="setup-num">6</div>
@@ -567,7 +567,7 @@ textarea{resize:vertical;min-height:70px;}
 
 <script>
 // ── CONFIG ────────────────────────────────────────────────
-const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID'; // Replace after Google Cloud setup
+const GOOGLE_CLIENT_ID = '566546508985-12fom6evof5isvjmea1nqlfm3pj82aun.apps.googleusercontent.com'; // Replace after Google Cloud setup
 const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly';
 
 // ── STATE ─────────────────────────────────────────────────
@@ -606,7 +606,7 @@ function fmtMins(mins) {
 
 // ── GOOGLE CALENDAR OAUTH ─────────────────────────────────
 function loadGoogleAPI() {
-  if (GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID') return;
+  if (GOOGLE_CLIENT_ID === '566546508985-12fom6evof5isvjmea1nqlfm3pj82aun.apps.googleusercontent.com') return;
   const script = document.createElement('script');
   script.src = 'https://accounts.google.com/gsi/client';
   script.onload = initGoogleClient;
@@ -626,7 +626,7 @@ function initGoogleClient() {
 }
 
 function connectGoogle() {
-  if (GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID') {
+  if (GOOGLE_CLIENT_ID === '566546508985-12fom6evof5isvjmea1nqlfm3pj82aun.apps.googleusercontent.com') {
     showToast('⚙️','See Setup Guide tab to configure Google Calendar');
     showPage('page-setup');
     return;
