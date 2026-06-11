@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- saved from url=(0054)file:///C:/Users/Craig/Downloads/mas-invoice-v4_1.html -->
+<!-- saved from url=(0052)file:///C:/Users/Craig/Downloads/mas-invoice-v5.html -->
 <html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -295,9 +295,7 @@ Check payable to: Claudia Marroquin"></textarea>
     <div><div class="page-title">Client Rate Cards</div><div class="page-sub">Rates, minimums, mileage, and billing contacts.</div></div>
     <button class="btn btn-teal" onclick="openClientModal()">+ Add client</button>
   </div>
-  <div class="client-grid" id="client-grid">
-    <div class="empty" style="grid-column:1/-1"><div class="empty-icon">🏢</div><h3>No clients yet</h3><p>Add your agencies to build their rate cards.</p></div>
-  </div>
+  <div class="client-grid" id="client-grid"><div class="empty" style="grid-column:1/-1"><div class="empty-icon">🏢</div><h3>No clients yet</h3><p>Add your agencies.</p></div></div>
 </div>
 
 <!-- PAGE: HISTORY -->
@@ -384,6 +382,27 @@ let editingAssignId = null;
 let editingClientId = null;
 let accessToken = null;
 let tokenClient = null;
+
+
+// ── PERSISTENT STORAGE ───────────────────────────────────
+function saveData() {
+  try {
+    localStorage.setItem('mas_clients', JSON.stringify(clients));
+    localStorage.setItem('mas_history', JSON.stringify(history));
+    localStorage.setItem('mas_counter', invCounter);
+  } catch(e) { console.log('Save error:', e); }
+}
+
+function loadData() {
+  try {
+    const c = localStorage.getItem('mas_clients');
+    const h = localStorage.getItem('mas_history');
+    const n = localStorage.getItem('mas_counter');
+    if (c) clients = JSON.parse(c);
+    if (h) history = JSON.parse(h);
+    if (n) invCounter = parseInt(n);
+  } catch(e) { console.log('Load error:', e); }
+}
 
 // ── GOOGLE AUTH ───────────────────────────────────────────
 function startGoogleAuth() {
@@ -697,7 +716,7 @@ function markSent() {
   showPanel('panel-connect'); setStep(1);
   ['inv-client', 'inv-email', 'inv-num', 'inv-due', 'inv-notes', 'inv-payment'].forEach(x => document.getElementById(x).value = '');
   document.getElementById('inv-date').value = '';
-  showToast('✅', 'Invoice saved to history');
+  saveData(); showToast('✅', 'Invoice saved to history');
 }
 
 // ── CLIENT MODAL ──────────────────────────────────────────
@@ -727,7 +746,7 @@ function saveClient() {
   if (!rates.length) { showToast('⚠️', 'Add at least one type'); return; }
   const c = { id: editingClientId || uid(), name, email, contact: document.getElementById('c-contact').value, mileageRate: parseFloat(document.getElementById('c-mileage').value) || 0, address: document.getElementById('c-address').value, rates };
   if (editingClientId) clients = clients.map(x => x.id === editingClientId ? c : x); else clients.push(c);
-  closeModal('client-modal'); renderClients(); updateClientDropdowns(); showToast('✅', 'Client saved');
+  saveData(); closeModal('client-modal'); renderClients(); updateClientDropdowns(); showToast('✅', 'Client saved');
 }
 
 function renderClients() {
@@ -736,7 +755,7 @@ function renderClients() {
   el.innerHTML = clients.map(c => `<div class="client-card"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;"><div><div style="font-weight:600;font-size:15px;margin-bottom:2px">${c.name}</div><div style="font-size:12px;color:var(--ink3);margin-bottom:12px">${c.email}</div></div><div style="display:flex;gap:6px;"><button class="btn btn-outline btn-xs" onclick="openClientModal('${c.id}')">Edit</button><button class="btn btn-danger btn-xs" onclick="deleteClient('${c.id}')">✕</button></div></div><div style="display:flex;flex-wrap:wrap;gap:5px;">${c.rates.map(r => `<span class="badge ${typeTag(r.type)}">${r.type} · $${r.rate}/hr · ${r.minHours}hr min</span>`).join('')}${c.mileageRate > 0 ? `<span class="badge badge-teal">$${c.mileageRate}/mi</span>` : ''}</div></div>`).join('');
 }
 
-function deleteClient(id) { if (confirm('Delete?')) { clients = clients.filter(c => c.id !== id); renderClients(); updateClientDropdowns(); } }
+function deleteClient(id) { if (confirm('Delete?')) { clients = clients.filter(c => c.id !== id); saveData(); renderClients(); updateClientDropdowns(); } }
 function updateClientDropdowns() { const s = document.getElementById('m-client'); const v = s.value; s.innerHTML = '<option value="">— Select —</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join(''); s.value = v; }
 function renderHistory() { const el = document.getElementById('history-list'); if (!history.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">📁</div><h3>No invoices yet</h3><p>Sent invoices appear here.</p></div>'; return; } el.innerHTML = history.map(h => `<div class="hist-row"><span style="font-weight:600">${h.num}</span><span>${h.client}</span><span>${fmtDateShort(h.date)}</span><span>${h.count} items</span><span style="text-align:right;font-weight:600;color:var(--green)">$${h.total.toFixed(2)}</span></div>`).join(''); }
 
@@ -776,8 +795,12 @@ function showToast(icon, msg) { const t = document.getElementById('toast'); docu
 
 // ── INIT ──────────────────────────────────────────────────
 window.addEventListener('load', () => {
+  loadData();
   showPanel('panel-connect');
   setStep(1);
+  renderClients();
+  updateClientDropdowns();
+  renderHistory();
   // Try to init Google client after script loads
   setTimeout(() => {
     if (typeof google !== 'undefined') initGoogleClient();
