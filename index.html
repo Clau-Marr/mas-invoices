@@ -532,6 +532,8 @@ let accessToken = null;
 let tokenClient = null;
 let currentStatusAssignId = null;
 let businessInfo = { name: 'Claudia Marroquin', addr1: '', addr2: 'Morgan Hill, CA' };
+let isDemoMode = false;
+let realClientsBackup = null;
 
 // ── STATUS CONSTANTS ──────────────────────────────────────
 // status: 'logged' | 'endtime_submitted' | 'invoice_submitted' | 'paid'
@@ -540,6 +542,7 @@ let businessInfo = { name: 'Claudia Marroquin', addr1: '', addr2: 'Morgan Hill, 
 
 // ── PERSISTENT STORAGE ───────────────────────────────────
 function saveData() {
+  if (isDemoMode) return; // never persist demo data over real saved data
   try {
     localStorage.setItem('mas_clients', JSON.stringify(clients));
     localStorage.setItem('mas_history', JSON.stringify(history));
@@ -1458,12 +1461,25 @@ function renderHistory() {
 
 // ── DEMO ──────────────────────────────────────────────────
 function loadDemo() {
+  // Safety check: if there are real saved clients, warn before switching to demo
+  if (clients.length > 0 && !isDemoMode) {
+    const ok = confirm(
+      'You have ' + clients.length + ' real client' + (clients.length > 1 ? 's' : '') + ' saved.\n\n' +
+      'Loading demo data will temporarily switch the view to sample agencies for testing. ' +
+      'Your real clients will NOT be deleted and will come back automatically when you exit demo mode.\n\n' +
+      'Continue with demo data?'
+    );
+    if (!ok) return;
+    realClientsBackup = JSON.parse(JSON.stringify(clients));
+  }
+  isDemoMode = true;
   clients = [
     { id: 'c1', name: 'Valley Medical Group', email: 'billing@valleymedical.com', contact: 'AP', mileageRate: 0.67, address: '', billingFreq: 'weekly', portalType: 'none', portalUrl: '', rates: [{ type: 'Medical follow-up', rate: 35, minHours: 2 }, { type: 'Evaluation', rate: 50, minHours: 3 }] },
     { id: 'c2', name: 'Bay Area Legal Services', email: 'invoices@balegal.com', contact: 'Finance', mileageRate: 0, address: '', billingFreq: 'monthly', portalType: 'none', portalUrl: '', rates: [{ type: 'Legal deposition', rate: 65, minHours: 2 }] },
     { id: 'c3', name: 'MedStaff Agency', email: 'billing@medstaff.com', contact: 'AP', mileageRate: 0.50, address: '', billingFreq: 'single', portalType: 'portal_twopart', portalUrl: 'https://medstaff-portal.example.com', rates: [{ type: 'Medical appointment', rate: 40, minHours: 2 }, { type: 'Evaluation', rate: 50, minHours: 3 }] }
   ];
   renderClients(); updateClientDropdowns();
+  showDemoBanner();
   importedEvents = [
     { id: 'e1', agencyName: 'Valley Medical Group', assignType: 'Medical follow-up', patientName: 'Maria Garcia', po: '', date: '2026-06-02', startTime: '09:00', endTime: '10:20', location: 'Good Samaritan Hospital', miles: 12, clientId: 'c1', clientName: 'Valley Medical Group', clientEmail: 'billing@valleymedical.com', rateInfo: { type: 'Medical follow-up', rate: 35, minHours: 2 }, billing: calcBillableHours('09:00','10:20',2), matched: true },
     { id: 'e2', agencyName: 'Bay Area Legal Services', assignType: 'Legal deposition', patientName: 'John Doe', po: 'PO9871', date: '2026-06-03', startTime: '13:00', endTime: '16:15', location: 'Santa Clara Superior Court', miles: 0, clientId: 'c2', clientName: 'Bay Area Legal Services', clientEmail: 'invoices@balegal.com', rateInfo: { type: 'Legal deposition', rate: 65, minHours: 2 }, billing: calcBillableHours('13:00','16:15',2), matched: true },
@@ -1472,7 +1488,30 @@ function loadDemo() {
   ];
   renderImportedEvents();
   document.getElementById('events-card').style.display = 'block';
-  showToast('✅', 'Demo loaded — MedStaff is set as a 2-step portal agency');
+  showToast('✅', 'Demo loaded — your real clients are safely set aside');
+}
+
+function exitDemoMode() {
+  if (!isDemoMode) return;
+  clients = realClientsBackup ? JSON.parse(JSON.stringify(realClientsBackup)) : [];
+  realClientsBackup = null;
+  isDemoMode = false;
+  renderClients(); updateClientDropdowns();
+  hideDemoBanner();
+  showToast('✅', 'Back to your real clients');
+}
+
+function showDemoBanner() {
+  if (document.getElementById('demo-mode-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'demo-mode-banner';
+  banner.style.cssText = 'position:fixed;top:58px;left:0;right:0;z-index:60;background:var(--gold2);color:#3a2a00;padding:10px 24px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.15);';
+  banner.innerHTML = `<span>🧪 Demo mode — viewing sample data only. Your real clients are safe and untouched.</span><button class="btn btn-primary btn-sm" onclick="exitDemoMode()" style="background:#16130f;">Exit demo &amp; restore my data</button>`;
+  document.body.appendChild(banner);
+}
+function hideDemoBanner() {
+  const b = document.getElementById('demo-mode-banner');
+  if (b) b.remove();
 }
 
 // ── NAV ───────────────────────────────────────────────────
