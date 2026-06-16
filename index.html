@@ -385,6 +385,7 @@ textarea{resize:vertical;min-height:70px;}
   <div class="form-grid g2">
     <div class="fg"><label>Miles traveled</label><input type="number" id="m-miles" placeholder="0" min="0" oninput="calcBilling()"></div>
     <div class="fg"><label>Notes</label><input type="text" id="m-notes"></div>
+    <div class="fg full"><label>Submission link (optional)</label><input type="url" id="m-sublink" placeholder="Paste the assignment-specific link from the agency's email here"></div>
   </div>
   <div class="modal-actions">
     <button class="btn btn-ghost" onclick="closeModal('assign-modal')">Cancel</button>
@@ -675,7 +676,7 @@ function importSelected() {
       billableMins: ev.billing.billableMins, overMin: ev.billing.overMin,
       rate: ev.rateInfo.rate, minHours: ev.rateInfo.minHours,
       serviceAmt, miles: ev.miles, mileageRate: client?.mileageRate || 0,
-      mileageAmt, total: serviceAmt + mileageAmt, notes: '',
+      mileageAmt, total: serviceAmt + mileageAmt, notes: '', submissionLink: '',
       status: initialStatus, statusHistory: [{ status: initialStatus, date: todayStr() }],
       billingFreq: client?.billingFreq || 'single',
       portalType: client?.portalType || 'none',
@@ -734,12 +735,13 @@ function openAddModal(id) {
         document.getElementById('m-end').value = a.end;
         document.getElementById('m-miles').value = a.miles || 0;
         document.getElementById('m-notes').value = a.notes || '';
+        document.getElementById('m-sublink').value = a.submissionLink || '';
         calcBilling();
       }, 50);
     }
   } else {
     document.getElementById('m-date').value = todayStr();
-    ['m-patient','m-location','m-po','m-start','m-end','m-notes'].forEach(x => document.getElementById(x).value = '');
+    ['m-patient','m-location','m-po','m-start','m-end','m-notes','m-sublink'].forEach(x => document.getElementById(x).value = '');
     document.getElementById('m-miles').value = 0;
   }
   document.getElementById('assign-modal').style.display = 'flex';
@@ -818,6 +820,7 @@ function saveAssignment() {
     overMin: b.overMin, rate: r.rate, minHours: r.minHours, serviceAmt: svc, miles,
     mileageRate: c.mileageRate || 0, mileageAmt: mil, total: svc + mil,
     notes: document.getElementById('m-notes').value,
+    submissionLink: document.getElementById('m-sublink').value.trim(),
     status: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.status || initialStatus) : initialStatus,
     statusHistory: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.statusHistory || []) : [{ status: initialStatus, date: todayStr() }],
     billingFreq: c.billingFreq || 'single',
@@ -883,6 +886,18 @@ function openStatusModal(assignId) {
     </div>`;
   }
 
+  // Assignment-specific submission link
+  if (a.status !== 'paid') {
+    body += `<div style="margin-bottom:14px;">
+      <label style="display:block;margin-bottom:5px;">Submission link for this assignment</label>
+      <div style="display:flex;gap:8px;">
+        <input type="url" id="status-sublink-input" value="${a.submissionLink || ''}" placeholder="Paste link from agency email" style="flex:1;">
+        <button class="btn btn-outline btn-sm" onclick="saveSubLinkFromStatus('${a.id}')">Save</button>
+        ${a.submissionLink ? `<a href="${a.submissionLink}" target="_blank" class="btn btn-purple btn-sm">Open ↗</a>` : ''}
+      </div>
+    </div>`;
+  }
+
   // Status history
   if (a.statusHistory && a.statusHistory.length > 1) {
     body += `<div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">`;
@@ -905,6 +920,15 @@ function openStatusModal(assignId) {
   });
   document.getElementById('status-modal-actions').innerHTML = actions;
   document.getElementById('status-modal').style.display = 'flex';
+}
+
+function saveSubLinkFromStatus(assignId) {
+  const link = document.getElementById('status-sublink-input').value.trim();
+  trackedAssignments = trackedAssignments.map(a => a.id === assignId ? {...a, submissionLink: link} : a);
+  assignments = assignments.map(a => a.id === assignId ? {...a, submissionLink: link} : a);
+  saveData();
+  showToast('✅', 'Submission link saved');
+  openStatusModal(assignId);
 }
 
 function advanceStatus(assignId, newStatus) {
@@ -1032,13 +1056,16 @@ function renderSubmissions() {
 
     g.items.forEach(a => {
       const st = getStatusLabel(a.status, a.portalType);
+      const linkBtn = a.submissionLink
+        ? `<a href="${a.submissionLink}" target="_blank" class="btn btn-purple btn-xs" title="Open submission link">🔗</a>`
+        : '';
       html += `<div class="sub-row">
         <div style="font-size:12px;font-weight:600;">${fmtDateShort(a.date)}</div>
         <div><div style="font-weight:500;font-size:12px;">${a.type}</div><div style="font-size:11px;color:var(--ink3);">${a.patientName}${a.po ? ' · PO:'+a.po : ''}</div></div>
         <div style="font-size:12px;color:var(--ink3);">${a.start}–${a.end}</div>
         <div style="font-size:12px;font-weight:600;color:var(--green);">$${a.total.toFixed(2)}</div>
         <div><span class="status-badge ${st.cls}">${st.icon} ${st.label}</span></div>
-        <div><button class="btn btn-ghost btn-xs" onclick="openStatusModal('${a.id}')" title="Update status">✎</button></div>
+        <div style="display:flex;gap:3px;">${linkBtn}<button class="btn btn-ghost btn-xs" onclick="openStatusModal('${a.id}')" title="Update status">✎</button></div>
       </div>`;
     });
 
