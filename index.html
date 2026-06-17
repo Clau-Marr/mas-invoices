@@ -505,9 +505,21 @@ textarea{resize:vertical;min-height:70px;}
     <div class="fg"><label>Mailing address line 1</label><input type="text" id="set-addr1" placeholder="123 Main St"></div>
     <div class="fg"><label>City, State, ZIP</label><input type="text" id="set-addr2" placeholder="Morgan Hill, CA 95037"></div>
   </div>
-  <div class="modal-actions">
+  <div class="modal-actions" style="margin-top:18px;">
     <button class="btn btn-ghost" onclick="closeModal('settings-modal')">Cancel</button>
     <button class="btn btn-teal" onclick="saveSettings()">Save</button>
+  </div>
+
+  <div class="divider"></div>
+  <div style="margin-bottom:14px;">
+    <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Backup &amp; restore</div>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.6;">Your data lives only in this browser. Download a backup regularly and keep it somewhere safe, like Google Drive, so you never lose it.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-teal btn-sm" onclick="downloadBackup()">⬇ Download backup</button>
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('restore-file-input').click()">⬆ Restore from backup</button>
+      <input type="file" id="restore-file-input" accept=".json" style="display:none;" onchange="restoreBackup(event)">
+    </div>
+    <div id="backup-last-saved" style="font-size:11px;color:var(--ink3);margin-top:10px;"></div>
   </div>
 </div>
 </div>
@@ -1324,6 +1336,9 @@ function openSettingsModal() {
   document.getElementById('set-name').value = businessInfo.name || '';
   document.getElementById('set-addr1').value = businessInfo.addr1 || '';
   document.getElementById('set-addr2').value = businessInfo.addr2 || '';
+  const lastBackup = localStorage.getItem('mas_last_backup');
+  const el = document.getElementById('backup-last-saved');
+  el.textContent = lastBackup ? 'Last backup downloaded: ' + new Date(lastBackup).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : 'No backup downloaded yet — download one now.';
   document.getElementById('settings-modal').style.display = 'flex';
 }
 
@@ -1337,6 +1352,75 @@ function saveSettings() {
   closeModal('settings-modal');
   showToast('✅', 'Business info saved');
   renderInvoice();
+}
+
+// ── BACKUP & RESTORE ──────────────────────────────────────
+function downloadBackup() {
+  const backup = {
+    backupType: 'mas-invoices-backup',
+    backupVersion: 1,
+    createdAt: new Date().toISOString(),
+    clients, history, invCounter, trackedAssignments, businessInfo
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const dateLabel = todayStr();
+  a.href = url;
+  a.download = `MAS-backup-${dateLabel}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  localStorage.setItem('mas_last_backup', new Date().toISOString());
+  const el = document.getElementById('backup-last-saved');
+  if (el) el.textContent = 'Last backup downloaded: ' + new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+  showToast('✅', 'Backup file downloaded — save it somewhere safe like Google Drive');
+}
+
+function restoreBackup(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let data;
+    try {
+      data = JSON.parse(e.target.result);
+    } catch (err) {
+      showToast('⚠️', 'That file is not a valid backup');
+      event.target.value = '';
+      return;
+    }
+    if (data.backupType !== 'mas-invoices-backup') {
+      showToast('⚠️', 'That file is not a MÁS backup file');
+      event.target.value = '';
+      return;
+    }
+    const currentCount = clients.length;
+    const incomingCount = (data.clients || []).length;
+    const ok = confirm(
+      'This backup has ' + incomingCount + ' client' + (incomingCount === 1 ? '' : 's') + ' and was created on ' +
+      new Date(data.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) + '.\n\n' +
+      (currentCount > 0 ? 'This will REPLACE your current ' + currentCount + ' saved client' + (currentCount === 1 ? '' : 's') + ' with what\'s in the backup.\n\n' : '') +
+      'Continue with restore?'
+    );
+    if (!ok) { event.target.value = ''; return; }
+
+    clients = data.clients || [];
+    history = data.history || [];
+    invCounter = data.invCounter || 1;
+    trackedAssignments = data.trackedAssignments || [];
+    businessInfo = data.businessInfo || businessInfo;
+    isDemoMode = false;
+    hideDemoBanner();
+
+    saveData();
+    renderClients(); updateClientDropdowns(); renderHistory(); renderSubmissions();
+    closeModal('settings-modal');
+    showToast('✅', 'Backup restored — ' + clients.length + ' clients loaded');
+    event.target.value = '';
+  };
+  reader.readAsText(file);
 }
 
 // ── CLIENT MODAL ──────────────────────────────────────────
@@ -1543,8 +1627,29 @@ window.addEventListener('load', () => {
   renderClients();
   updateClientDropdowns();
   renderHistory();
+  checkBackupReminder();
   setTimeout(() => { if (typeof google !== 'undefined') initGoogleClient(); }, 1500);
 });
+
+function checkBackupReminder() {
+  if (!clients.length) return; // nothing to back up yet
+  const last = localStorage.getItem('mas_last_backup');
+  const daysSince = last ? (Date.now() - new Date(last).getTime()) / 86400000 : Infinity;
+  if (daysSince > 14) {
+    setTimeout(() => {
+      const banner = document.createElement('div');
+      banner.id = 'backup-reminder-banner';
+      banner.style.cssText = 'position:fixed;bottom:20px;left:20px;max-width:360px;background:white;border:1.5px solid var(--canvas3);border-radius:var(--r);box-shadow:var(--sh-lg);padding:16px 18px;z-index:150;font-size:13px;';
+      banner.innerHTML = `<div style="font-weight:600;margin-bottom:6px;">💾 Back up your data</div>
+        <div style="color:var(--ink3);margin-bottom:12px;line-height:1.5;">${last ? 'It\'s been a while since your last backup.' : 'You haven\'t downloaded a backup yet.'} Your data only lives in this browser.</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-teal btn-sm" onclick="downloadBackup();document.getElementById('backup-reminder-banner').remove();">Download now</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('backup-reminder-banner').remove();">Later</button>
+        </div>`;
+      document.body.appendChild(banner);
+    }, 1200);
+  }
+}
 </script>
 </body>
 </html>
