@@ -647,13 +647,20 @@ function fetchEvents() {
 
 function parseEvent(ev) {
   if (!ev.start || !ev.summary) return null;
-  const parts = ev.summary.trim().split(/\s*—\s*/);
+
+  // ── Flexible separator: handles em-dash, hyphen, double-hyphen, with or without spaces
+  // This covers what phones autocorrect to, e.g. "—" → "-" or "--"
+  const raw = ev.summary.trim();
+  const parts = raw.split(/\s*(?:—|--|–|-)\s*/).map(p => p.trim()).filter(Boolean);
+
   if (parts.length < 3) return null;
-  const agencyName = parts[0].trim();
-  const assignType = parts[1].trim();
-  const patientName = parts[2].trim();
+
+  const agencyName = parts[0];
+  const assignType = parts[1];
+  const patientName = parts[2];
   let po = '';
   if (parts[3] && parts[3].toUpperCase().startsWith('PO:')) po = parts[3].replace(/^PO:/i, '').trim();
+
   const date = (ev.start.date || ev.start.dateTime || '').split('T')[0];
   const startTime = ev.start.dateTime ? ev.start.dateTime.split('T')[1].slice(0,5) : '';
   const endTime = ev.end?.dateTime ? ev.end.dateTime.split('T')[1].slice(0,5) : '';
@@ -661,13 +668,70 @@ function parseEvent(ev) {
   let miles = 0;
   const milesMatch = (ev.description || '').match(/miles?\s*:\s*(\d+(\.\d+)?)/i);
   if (milesMatch) miles = parseFloat(milesMatch[1]);
-  const client = clients.find(c => c.name.toLowerCase() === agencyName.toLowerCase() || agencyName.toLowerCase().includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(agencyName.toLowerCase()));
+
+  // ── Fuzzy client matching: exact → contains → starts with → close enough
+  const agencyLower = agencyName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  let client = clients.find(c => c.name.toLowerCase() === agencyName.toLowerCase());
+  if (!client) client = clients.find(c =>
+    c.name.toLowerCase().includes(agencyName.toLowerCase()) ||
+    agencyName.toLowerCase().includes(c.name.toLowerCase())
+  );
+  if (!client) client = clients.find(c => {
+    const cLower = c.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return cLower.startsWith(agencyLower.slice(0,5)) || agencyLower.startsWith(cLower.slice(0,5));
+  });
+
+  // ── Fuzzy assignment type matching
   let rateInfo = null, billing = null;
   if (client) {
-    rateInfo = client.rates.find(r => r.type.toLowerCase() === assignType.toLowerCase() || assignType.toLowerCase().includes(r.type.toLowerCase()) || r.type.toLowerCase().includes(assignType.toLowerCase()));
+    const typeLower = assignType.toLowerCase().replace(/[^a-z0-9]/g, '');
+    rateInfo = client.rates.find(r => r.type.toLowerCase() === assignType.toLowerCase());
+    if (!rateInfo) rateInfo = client.rates.find(r =>
+      r.type.toLowerCase().includes(assignType.toLowerCase()) ||
+      assignType.toLowerCase().includes(r.type.toLowerCase())
+    );
+    if (!rateInfo) rateInfo = client.rates.find(r => {
+      const rLower = r.type.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return rLower.startsWith(typeLower.slice(0,4)) || typeLower.startsWith(rLower.slice(0,4));
+    });
     if (rateInfo && startTime && endTime) billing = calcBillableHours(startTime, endTime, rateInfo.minHours);
   }
-  return { id: ev.id || uid(), agencyName, assignType, patientName, po, date, startTime, endTime, location, miles, clientId: client?.id || null, clientName: client?.name || agencyName, clientEmail: client?.email || '', rateInfo, billing, matched: !!client };
+
+  // ── Helpful suggestions for error messages
+  let suggestion = '';
+  if (!client && clients.length > 0) {
+    const closest = clients.reduce((best, c) => {
+      const score = similarityScore(agencyName, c.name);
+      return score > best.score ? { name: c.name, score } : best;
+    }, { name: '', score: 0 });
+    if (closest.score > 0.3) suggestion = closest.name;
+  }
+
+  return {
+    id: ev.id || uid(), agencyName, assignType, patientName, po, date,
+    startTime, endTime, location, miles,
+    clientId: client?.id || null,
+    clientName: client?.name || agencyName,
+    clientEmail: client?.email || '',
+    rateInfo, billing,
+    matched: !!client,
+    suggestion
+  };
+}
+
+// Simple similarity score for "did you mean?" suggestions (0 = no match, 1 = identical)
+function similarityScore(a, b) {
+  a = a.toLowerCase().replace(/[^a-z0-9]/g, '');
+  b = b.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (a === b) return 1;
+  if (b.includes(a) || a.includes(b)) return 0.8;
+  let matches = 0;
+  const shorter = a.length < b.length ? a : b;
+  const longer = a.length < b.length ? b : a;
+  for (let i = 0; i < shorter.length; i++) {
+    if (longer.includes(shorter[i])) matches++;
+  }
+  return matches / longer.length;
 }
 
 function renderImportedEvents() {
@@ -678,7 +742,11 @@ function renderImportedEvents() {
   document.getElementById('events-sub').textContent = importedEvents.length + ' assignments found — select which to invoice.';
   list.innerHTML = importedEvents.map(ev => {
     const hasError = !ev.matched || !ev.rateInfo || !ev.startTime;
-    const errMsg = !ev.matched ? 'Agency "' + ev.agencyName + '" not in rate cards' : !ev.rateInfo ? 'Type "' + ev.assignType + '" not in rate card' : 'No start/end time';
+    const errMsg = !ev.matched
+      ? `Agency "${ev.agencyName}" not found in rate cards${ev.suggestion ? ' — did you mean <strong>' + ev.suggestion + '</strong>?' : '. Check spelling in your calendar event.'}`
+      : !ev.rateInfo
+      ? `Assignment type "${ev.assignType}" not in ${ev.clientName}'s rate card. Check spelling in your calendar event.`
+      : 'No start/end time — make sure the event has a specific time, not all-day.';
     const client = ev.clientId ? clients.find(c => c.id === ev.clientId) : null;
     const amt = ev.billing && ev.rateInfo ? '$' + (ev.billing.billableHours * ev.rateInfo.rate + ev.miles * (client?.mileageRate || 0)).toFixed(2) : '—';
     const isPortal = client && client.portalType !== 'none';
