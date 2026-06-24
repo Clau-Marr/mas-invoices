@@ -1957,15 +1957,91 @@ function showToast(icon, msg) { const t = document.getElementById('toast'); docu
 
 // ── INIT ──────────────────────────────────────────────────
 window.addEventListener('load', () => {
-  loadData();
-  showPanel('panel-connect');
-  setStep(1);
-  renderClients();
-  updateClientDropdowns();
-  renderHistory();
-  checkBackupReminder();
-  setTimeout(() => { if (typeof google !== 'undefined') initGoogleClient(); }, 1500);
+  checkSingleTab(() => {
+    loadData();
+    showPanel('panel-connect');
+    setStep(1);
+    renderClients();
+    updateClientDropdowns();
+    renderHistory();
+    checkBackupReminder();
+    setTimeout(() => { if (typeof google !== 'undefined') initGoogleClient(); }, 1500);
+  });
 });
+
+function checkSingleTab(onSafe) {
+  // Use localStorage heartbeat to detect if another tab already has the app open
+  const TAB_KEY = 'mas_active_tab';
+  const TAB_ID = Math.random().toString(36).slice(2, 9);
+  const HEARTBEAT_MS = 1500;
+  const TIMEOUT_MS = 3000;
+
+  // Check if another tab is currently active
+  const existing = localStorage.getItem(TAB_KEY);
+  if (existing) {
+    const { id, ts } = JSON.parse(existing);
+    const age = Date.now() - ts;
+    if (id !== TAB_ID && age < TIMEOUT_MS) {
+      // Another tab is actively running — show warning and block this tab
+      showTabBlockBanner();
+      // Keep checking in case the other tab closes
+      const checkInterval = setInterval(() => {
+        const check = localStorage.getItem(TAB_KEY);
+        if (!check) {
+          clearInterval(checkInterval);
+          const blocker = document.getElementById('tab-block-banner');
+          if (blocker) blocker.remove();
+          onSafe();
+          startTabHeartbeat(TAB_KEY, TAB_ID, HEARTBEAT_MS);
+        } else {
+          const { ts: newTs } = JSON.parse(check);
+          if (Date.now() - newTs > TIMEOUT_MS) {
+            clearInterval(checkInterval);
+            const blocker = document.getElementById('tab-block-banner');
+            if (blocker) blocker.remove();
+            onSafe();
+            startTabHeartbeat(TAB_KEY, TAB_ID, HEARTBEAT_MS);
+          }
+        }
+      }, 1000);
+      return;
+    }
+  }
+
+  // Safe to proceed — claim the tab
+  onSafe();
+  startTabHeartbeat(TAB_KEY, TAB_ID, HEARTBEAT_MS);
+
+  // Release lock when tab closes
+  window.addEventListener('beforeunload', () => {
+    const current = localStorage.getItem(TAB_KEY);
+    if (current) {
+      const { id } = JSON.parse(current);
+      if (id === TAB_ID) localStorage.removeItem(TAB_KEY);
+    }
+  });
+}
+
+function startTabHeartbeat(key, id, interval) {
+  localStorage.setItem(key, JSON.stringify({ id, ts: Date.now() }));
+  setInterval(() => {
+    localStorage.setItem(key, JSON.stringify({ id, ts: Date.now() }));
+  }, interval);
+}
+
+function showTabBlockBanner() {
+  document.body.style.overflow = 'hidden';
+  const blocker = document.createElement('div');
+  blocker.id = 'tab-block-banner';
+  blocker.style.cssText = 'position:fixed;inset:0;background:rgba(22,19,15,.85);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;';
+  blocker.innerHTML = `<div style="background:white;border-radius:16px;padding:36px;max-width:420px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="font-size:48px;margin-bottom:16px;">⚠️</div>
+    <div style="font-family:'Fraunces',serif;font-size:22px;font-weight:400;margin-bottom:12px;">App already open</div>
+    <div style="font-size:13px;color:#706b63;line-height:1.7;margin-bottom:24px;">MÁS is already open in another tab or window. To protect your data from being overwritten, please use only one tab at a time.<br><br>Close the other tab first, then this page will automatically resume.</div>
+    <button class="btn btn-outline" onclick="window.close()">Close this tab</button>
+  </div>`;
+  document.body.appendChild(blocker);
+}
 
 function checkBackupReminder() {
   if (!clients.length) return; // nothing to back up yet
