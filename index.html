@@ -918,6 +918,31 @@ function saveAssignment() {
   const svc = b.billableHours * r.rate;
   const mil = miles * (c.mileageRate || 0);
   const initialStatus = getInitialStatus(c);
+  const existing = editingAssignId ? (assignments.find(x => x.id === editingAssignId) || trackedAssignments.find(x => x.id === editingAssignId)) : null;
+
+  // Warn if editing an assignment that's already been invoiced or paid
+  if (existing && (existing.status === 'invoice_submitted' || existing.status === 'paid')) {
+    const statusLabel = existing.status === 'paid' ? 'already marked PAID' : 'already submitted in an invoice';
+    const ok = confirm(
+      '⚠️ This assignment is ' + statusLabel + '.\n\n' +
+      'Editing it will create an audit note showing what changed and when.\n\n' +
+      'Continue editing?'
+    );
+    if (!ok) { closeModal('assign-modal'); return; }
+  }
+
+  // Build edit history entry if this is an edit
+  let editHistory = existing?.editHistory || [];
+  if (editingAssignId && existing) {
+    const changes = [];
+    if (existing.start !== start || existing.end !== end) changes.push('Time: ' + existing.start + '–' + existing.end + ' → ' + start + '–' + end);
+    if (existing.patientName !== patientName) changes.push('Patient: ' + existing.patientName + ' → ' + patientName);
+    if (existing.miles !== (parseFloat(document.getElementById('m-miles').value) || 0)) changes.push('Miles: ' + existing.miles + ' → ' + (parseFloat(document.getElementById('m-miles').value) || 0));
+    if (existing.total !== (svc + mil)) changes.push('Total: $' + existing.total.toFixed(2) + ' → $' + (svc + mil).toFixed(2));
+    if (changes.length > 0) {
+      editHistory = [...editHistory, { date: todayStr(), changes, previousStatus: existing.status }];
+    }
+  }
   const a = {
     id: editingAssignId || uid(), clientId: cid, clientName: c.name, clientEmail: c.email,
     type, patientName, po: document.getElementById('m-po').value, date, location: document.getElementById('m-location').value,
@@ -930,7 +955,8 @@ function saveAssignment() {
     statusHistory: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.statusHistory || []) : [{ status: initialStatus, date: todayStr() }],
     billingFreq: c.billingFreq || 'single',
     portalType: c.portalType || 'none',
-    portalUrl: c.portalUrl || ''
+    portalUrl: c.portalUrl || '',
+    editHistory
   };
   if (editingAssignId) {
     assignments = assignments.map(x => x.id === editingAssignId ? a : x);
@@ -1009,6 +1035,16 @@ function openStatusModal(assignId) {
     a.statusHistory.forEach(h => {
       const hs = getStatusLabel(h.status, a.portalType);
       body += `<div>${hs.icon} ${hs.label} — ${fmtDateShort(h.date)}</div>`;
+    });
+    body += `</div>`;
+  }
+
+  // Edit history (audit trail)
+  if (a.editHistory && a.editHistory.length > 0) {
+    body += `<div style="margin-bottom:10px;padding:10px 12px;background:var(--gold-light);border-left:3px solid var(--gold2);border-radius:var(--r-sm);">
+      <div style="font-size:11px;font-weight:600;color:var(--gold);margin-bottom:6px;">✏️ Edit history</div>`;
+    a.editHistory.forEach(e => {
+      body += `<div style="font-size:11px;color:var(--ink2);margin-bottom:4px;"><strong>${fmtDateShort(e.date)}</strong> — ${e.changes.join(', ')}</div>`;
     });
     body += `</div>`;
   }
@@ -1395,7 +1431,15 @@ function renderInvoice() {
 
 function markSent() {
   const sel = getSelected();
-  history.unshift({ id: uid(), num: document.getElementById('inv-num').value, client: document.getElementById('inv-client').value, date: todayStr(), total: sel.reduce((s,a) => s+a.total, 0), count: sel.length });
+  history.unshift({ 
+    id: uid(), 
+    num: document.getElementById('inv-num').value, 
+    client: document.getElementById('inv-client').value, 
+    date: todayStr(), 
+    total: sel.reduce((s,a) => s+a.total, 0), 
+    count: sel.length,
+    snapshot: sel.map(a => ({ id: a.id, patientName: a.patientName, type: a.type, date: a.date, start: a.start, end: a.end, billableHours: a.billableHours, rate: a.rate, total: a.total, miles: a.miles }))
+  });
   invCounter++;
   // Advance status to invoice_submitted for selected
   sel.forEach(a => {
