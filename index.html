@@ -66,6 +66,11 @@ textarea{resize:vertical;min-height:70px;}
 .badge-portal{background:var(--purple-light);color:var(--purple);}
 .badge-weekly{background:#fff3e0;color:#b85c00;}
 .badge-monthly{background:var(--blue-light);color:var(--blue);}
+.badge-paid{background:var(--green-light);color:var(--green);}
+.badge-unpaid{background:#f0f0f0;color:#666;}
+.badge-short{background:var(--red-light);color:var(--red);}
+.hist-row-new{display:grid;grid-template-columns:110px 1fr 90px 90px 100px 110px;gap:10px;padding:13px 16px;border-radius:8px;font-size:13px;align-items:center;border:1.5px solid transparent;}
+.hist-row-new:hover{background:var(--canvas);border-color:var(--canvas3);}
 
 /* Status badges */
 .status-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.03em;}
@@ -354,12 +359,27 @@ textarea{resize:vertical;min-height:70px;}
 
 <!-- PAGE: HISTORY -->
 <div class="page" id="page-history">
-  <div class="page-title">Invoice History</div>
-  <div class="page-sub">All invoices you've sent.</div>
-  <div class="card">
-    <div class="hist-row hist-hdr"><span>Invoice #</span><span>Client</span><span>Date</span><span>Items</span><span style="text-align:right">Total</span></div>
-    <div id="history-list"><div class="empty"><div class="empty-icon">📁</div><h3>No invoices yet</h3><p>Sent invoices appear here.</p></div></div>
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:12px;">
+    <div><div class="page-title">Payments & Reconciliation</div><div class="page-sub">Track what's been paid, what's outstanding, and flag short payments.</div></div>
+    <select id="pay-filter" onchange="renderHistory()" style="width:auto;font-size:12px;padding:6px 10px;">
+      <option value="all">All invoices</option>
+      <option value="unpaid">Outstanding only</option>
+      <option value="short">Short payments</option>
+      <option value="paid">Fully paid</option>
+    </select>
   </div>
+
+  <!-- Summary bar -->
+  <div id="pay-summary-bar" style="display:none;">
+    <div class="sum-bar" style="margin-bottom:20px;">
+      <div class="sum-item"><div class="sum-lbl">Total invoiced</div><div class="sum-val" id="pay-total-invoiced">$0.00</div></div>
+      <div class="sum-item"><div class="sum-lbl">Total received</div><div class="sum-val" id="pay-total-received">$0.00</div></div>
+      <div class="sum-item"><div class="sum-lbl">Outstanding</div><div class="sum-val" id="pay-total-outstanding">$0.00</div></div>
+      <div class="sum-item"><div class="sum-lbl">Short payments</div><div class="sum-val" id="pay-total-short">$0.00</div></div>
+    </div>
+  </div>
+
+  <div id="history-list"><div class="empty"><div class="empty-icon">📁</div><h3>No invoices yet</h3><p>Sent invoices appear here.</p></div></div>
 </div>
 </div>
 
@@ -486,7 +506,38 @@ textarea{resize:vertical;min-height:70px;}
 </div>
 </div>
 
-<!-- MODAL: STATUS UPDATE -->
+<!-- MODAL: RECORD PAYMENT -->
+<div class="modal-bg" id="payment-modal" style="display:none" onclick="if(event.target===this)closeModal('payment-modal')">
+<div class="modal" style="max-width:500px;">
+  <div class="modal-title" id="payment-modal-title">Record payment</div>
+  <input type="hidden" id="pay-invoice-ids"> <!-- comma-separated invoice ids -->
+  <div id="payment-modal-body" style="margin-bottom:16px;"></div>
+  <div class="form-grid g2" style="margin-bottom:16px;">
+    <div class="fg full"><label>Amount received ($)</label>
+      <input type="number" id="pay-amount" placeholder="0.00" min="0" step="0.01" oninput="updatePaymentPreview()">
+    </div>
+    <div class="fg"><label>Payment date</label>
+      <input type="date" id="pay-date">
+    </div>
+    <div class="fg"><label>Payment method</label>
+      <select id="pay-method">
+        <option>Direct deposit</option>
+        <option>Check</option>
+        <option>Zelle</option>
+        <option>Other</option>
+      </select>
+    </div>
+    <div class="fg full"><label>Notes (optional)</label>
+      <input type="text" id="pay-notes" placeholder="e.g. covers invoices MAS-2026-001 and 002">
+    </div>
+  </div>
+  <div id="payment-preview" style="margin-bottom:16px;"></div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeModal('payment-modal')">Cancel</button>
+    <button class="btn btn-teal" onclick="savePayment()">Save payment</button>
+  </div>
+</div>
+</div>
 <div class="modal-bg" id="status-modal" style="display:none" onclick="if(event.target===this)closeModal('status-modal')">
 <div class="modal" style="max-width:440px;">
   <div class="modal-title" id="status-modal-title">Update status</div>
@@ -1677,8 +1728,155 @@ function updateClientDropdowns() {
 
 function renderHistory() {
   const el = document.getElementById('history-list');
-  if (!history.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">📁</div><h3>No invoices yet</h3><p>Sent invoices appear here.</p></div>'; return; }
-  el.innerHTML = history.map(h => `<div class="hist-row"><span style="font-weight:600">${h.num}</span><span>${h.client}</span><span>${fmtDateShort(h.date)}</span><span>${h.count} items</span><span style="text-align:right;font-weight:600;color:var(--green)">$${h.total.toFixed(2)}</span></div>`).join('');
+  const filterVal = document.getElementById('pay-filter')?.value || 'all';
+  const summaryBar = document.getElementById('pay-summary-bar');
+
+  if (!history.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">📁</div><h3>No invoices yet</h3><p>Sent invoices appear here.</p></div>';
+    if (summaryBar) summaryBar.style.display = 'none';
+    return;
+  }
+
+  // Calculate summary totals
+  const totalInvoiced = history.reduce((s, h) => s + h.total, 0);
+  const totalReceived = history.reduce((s, h) => s + (h.amountPaid || 0), 0);
+  const totalOutstanding = history.filter(h => h.paymentStatus !== 'paid').reduce((s, h) => s + (h.total - (h.amountPaid || 0)), 0);
+  const totalShort = history.filter(h => h.paymentStatus === 'short').reduce((s, h) => s + (h.total - (h.amountPaid || 0)), 0);
+
+  if (summaryBar) {
+    summaryBar.style.display = 'block';
+    document.getElementById('pay-total-invoiced').textContent = '$' + totalInvoiced.toFixed(2);
+    document.getElementById('pay-total-received').textContent = '$' + totalReceived.toFixed(2);
+    document.getElementById('pay-total-outstanding').textContent = '$' + totalOutstanding.toFixed(2);
+    document.getElementById('pay-total-short').textContent = '$' + totalShort.toFixed(2);
+  }
+
+  // Filter
+  let filtered = history;
+  if (filterVal === 'unpaid') filtered = history.filter(h => !h.paymentStatus || h.paymentStatus === 'unpaid');
+  if (filterVal === 'short') filtered = history.filter(h => h.paymentStatus === 'short');
+  if (filterVal === 'paid') filtered = history.filter(h => h.paymentStatus === 'paid');
+
+  if (!filtered.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><h3>Nothing here</h3><p>No invoices match this filter.</p></div>';
+    return;
+  }
+
+  // Header
+  let html = `<div style="display:grid;grid-template-columns:110px 1fr 90px 90px 100px 110px;gap:10px;padding:6px 16px 10px;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);">
+    <span>Invoice #</span><span>Client</span><span>Invoiced</span><span>Received</span><span>Status</span><span></span>
+  </div>`;
+
+  filtered.forEach(h => {
+    const payStatus = h.paymentStatus || 'unpaid';
+    const amountPaid = h.amountPaid || 0;
+    const diff = h.total - amountPaid;
+
+    const statusBadge = payStatus === 'paid'
+      ? `<span class="badge badge-paid">✅ Paid</span>`
+      : payStatus === 'short'
+      ? `<span class="badge badge-short">⚠ Short $${diff.toFixed(2)}</span>`
+      : `<span class="badge badge-unpaid">⏳ Outstanding</span>`;
+
+    const actionBtn = payStatus === 'paid'
+      ? `<button class="btn btn-ghost btn-xs" onclick="openPaymentModal('${h.id}')">Edit</button>`
+      : `<button class="btn btn-teal btn-xs" onclick="openPaymentModal('${h.id}')">💰 Record payment</button>`;
+
+    html += `<div class="hist-row-new">
+      <div style="font-weight:600;">${h.num}</div>
+      <div>
+        <div style="font-weight:500;">${h.client}</div>
+        <div style="font-size:11px;color:var(--ink3);">${fmtDateShort(h.date)} · ${h.count} item${h.count > 1 ? 's' : ''}${h.paymentDate ? ' · paid ' + fmtDateShort(h.paymentDate) : ''}</div>
+      </div>
+      <div style="font-weight:600;">$${h.total.toFixed(2)}</div>
+      <div style="color:${payStatus === 'paid' ? 'var(--green)' : payStatus === 'short' ? 'var(--red)' : 'var(--ink3)'};">
+        ${amountPaid > 0 ? '$' + amountPaid.toFixed(2) : '—'}
+      </div>
+      <div>${statusBadge}</div>
+      <div>${actionBtn}</div>
+    </div>`;
+
+    // Show short payment note
+    if (payStatus === 'short' && h.payNotes) {
+      html += `<div style="font-size:11px;color:var(--ink3);padding:4px 16px 8px;margin-top:-6px;">📝 ${h.payNotes}</div>`;
+    }
+  });
+
+  el.innerHTML = html;
+}
+
+// ── PAYMENT MODAL ─────────────────────────────────────────
+function openPaymentModal(invoiceId) {
+  const h = history.find(x => x.id === invoiceId);
+  if (!h) return;
+  document.getElementById('payment-modal-title').textContent = 'Record payment — ' + h.num;
+  document.getElementById('pay-invoice-ids').value = invoiceId;
+  document.getElementById('pay-amount').value = h.amountPaid || '';
+  document.getElementById('pay-date').value = h.paymentDate || todayStr();
+  document.getElementById('pay-method').value = h.payMethod || 'Direct deposit';
+  document.getElementById('pay-notes').value = h.payNotes || '';
+
+  const body = `<div style="padding:12px 16px;background:var(--canvas);border-radius:var(--r-sm);margin-bottom:4px;">
+    <div style="font-weight:600;margin-bottom:4px;">${h.client} — ${h.num}</div>
+    <div style="font-size:12px;color:var(--ink3);">${h.count} assignment${h.count > 1 ? 's' : ''} · Invoiced: <strong>$${h.total.toFixed(2)}</strong> · ${fmtDateShort(h.date)}</div>
+  </div>`;
+  document.getElementById('payment-modal-body').innerHTML = body;
+  updatePaymentPreview();
+  document.getElementById('payment-modal').style.display = 'flex';
+}
+
+function updatePaymentPreview() {
+  const invoiceId = document.getElementById('pay-invoice-ids').value;
+  const h = history.find(x => x.id === invoiceId);
+  if (!h) return;
+  const amount = parseFloat(document.getElementById('pay-amount').value) || 0;
+  const diff = h.total - amount;
+  const preview = document.getElementById('payment-preview');
+  if (!amount) { preview.innerHTML = ''; return; }
+
+  if (Math.abs(diff) < 0.01) {
+    preview.innerHTML = `<div class="info info-green">✅ Full payment — matches invoice exactly.</div>`;
+  } else if (diff > 0) {
+    preview.innerHTML = `<div class="info" style="background:var(--red-light);color:var(--red);border-left:3px solid var(--red);">⚠ Short payment — $${diff.toFixed(2)} still outstanding. This will be flagged for follow-up.</div>`;
+  } else {
+    preview.innerHTML = `<div class="info info-gold">ℹ Overpayment of $${Math.abs(diff).toFixed(2)} — double check the amount.</div>`;
+  }
+}
+
+function savePayment() {
+  const invoiceId = document.getElementById('pay-invoice-ids').value;
+  const amount = parseFloat(document.getElementById('pay-amount').value);
+  if (!amount || amount <= 0) { showToast('⚠️', 'Enter the amount received'); return; }
+
+  history = history.map(h => {
+    if (h.id !== invoiceId) return h;
+    const diff = h.total - amount;
+    const paymentStatus = Math.abs(diff) < 0.01 ? 'paid' : diff > 0 ? 'short' : 'paid';
+    // Also update tracked assignments to 'paid' if fully paid
+    if (paymentStatus === 'paid' && h.snapshot) {
+      h.snapshot.forEach(snap => {
+        trackedAssignments = trackedAssignments.map(t =>
+          t.id === snap.id ? {...t, status: 'paid', statusHistory: [...(t.statusHistory||[]), { status: 'paid', date: todayStr() }]} : t
+        );
+      });
+    }
+    return {
+      ...h,
+      amountPaid: amount,
+      paymentStatus,
+      paymentDate: document.getElementById('pay-date').value,
+      payMethod: document.getElementById('pay-method').value,
+      payNotes: document.getElementById('pay-notes').value
+    };
+  });
+
+  saveData();
+  closeModal('payment-modal');
+  renderHistory();
+  renderSubmissions();
+  const h = history.find(x => x.id === invoiceId);
+  if (h?.paymentStatus === 'paid') showToast('💚', 'Payment recorded — invoice fully paid');
+  else showToast('⚠️', 'Short payment recorded — $' + (h.total - amount).toFixed(2) + ' still outstanding');
 }
 
 // ── DEMO ──────────────────────────────────────────────────
