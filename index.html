@@ -1096,8 +1096,20 @@ function updateSummary() {
 
 function getSelected() { return assignments.filter(a => { const c = document.getElementById('chk-'+a.id); return c && c.checked; }); }
 function removeA(id) {
-  assignments = assignments.filter(a => a.id !== id);
+  const a = assignments.find(x => x.id === id);
+  if (!a) return;
+  const ok = confirm(
+    'Delete this assignment?\n\n' +
+    a.clientName + ' — ' + a.type + '\n' +
+    a.patientName + ' · ' + fmtDateShort(a.date) + ' · $' + a.total.toFixed(2) + '\n\n' +
+    'This cannot be undone.'
+  );
+  if (!ok) return;
+  assignments = assignments.filter(x => x.id !== id);
+  trackedAssignments = trackedAssignments.filter(x => x.id !== id);
+  saveData();
   renderAssignments();
+  showToast('🗑', 'Assignment deleted');
 }
 
 // ── SUBMISSIONS TRACKER ───────────────────────────────────
@@ -1596,7 +1608,21 @@ function renderClients() {
   }).join('');
 }
 
-function deleteClient(id) { if (confirm('Delete this client?')) { clients = clients.filter(c => c.id !== id); saveData(); renderClients(); updateClientDropdowns(); } }
+function deleteClient(id) {
+  const c = clients.find(x => x.id === id);
+  if (!c) return;
+  const ok = confirm(
+    'Delete ' + c.name + '?\n\n' +
+    'This will permanently remove their rate card (' + c.rates.length + ' assignment type' + (c.rates.length === 1 ? '' : 's') + ').\n\n' +
+    'This cannot be undone.'
+  );
+  if (!ok) return;
+  clients = clients.filter(x => x.id !== id);
+  saveData();
+  renderClients();
+  updateClientDropdowns();
+  showToast('🗑', c.name + ' deleted');
+}
 function updateClientDropdowns() {
   const s = document.getElementById('m-client'); const v = s.value;
   s.innerHTML = '<option value="">— Select —</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
