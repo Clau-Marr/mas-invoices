@@ -712,9 +712,9 @@ function parseEvent(ev) {
   let po = '';
   if (parts[3] && parts[3].toUpperCase().startsWith('PO:')) po = parts[3].replace(/^PO:/i, '').trim();
 
-  const date = (ev.start.date || ev.start.dateTime || '').split('T')[0];
-  const startTime = ev.start.dateTime ? ev.start.dateTime.split('T')[1].slice(0,5) : '';
-  const endTime = ev.end?.dateTime ? ev.end.dateTime.split('T')[1].slice(0,5) : '';
+  const date = ev.start.date || (ev.start.dateTime ? toPacificDate(ev.start.dateTime) : '');
+  const startTime = ev.start.dateTime ? toPacificTime(ev.start.dateTime) : '';
+  const endTime = ev.end?.dateTime ? toPacificTime(ev.end.dateTime) : '';
   const location = ev.location || '';
   let miles = 0;
   const milesMatch = (ev.description || '').match(/miles?\s*:\s*(\d+(\.\d+)?)/i);
@@ -866,6 +866,36 @@ function calcBillableHours(s, e, minH) {
   return { actualMins: actual, billableMins: billable, billableHours: billable / 60, overMin: actual > minMins };
 }
 function fmtMins(m) { const h = Math.floor(m/60), mn = m%60; return mn === 0 ? h+'h' : h+'h '+mn+'m'; }
+function toPacificTime(isoString) {
+  // Converts any ISO datetime (regardless of its embedded timezone) to HH:MM in Pacific time
+  try {
+    const d = new Date(isoString);
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: '2-digit', minute: '2-digit', hour12: false
+    });
+    const parts = formatter.formatToParts(d);
+    const hour = parts.find(p => p.type === 'hour').value;
+    const minute = parts.find(p => p.type === 'minute').value;
+    return hour + ':' + minute;
+  } catch (e) {
+    // Fallback to old behavior if anything goes wrong
+    return isoString.split('T')[1]?.slice(0,5) || '';
+  }
+}
+function toPacificDate(isoString) {
+  // Returns YYYY-MM-DD for the given datetime, as that date falls in Pacific time
+  try {
+    const d = new Date(isoString);
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+    return formatter.format(d); // en-CA locale gives YYYY-MM-DD format
+  } catch (e) {
+    return isoString.split('T')[0] || '';
+  }
+}
 function fmtTime(t) {
   if (!t) return t;
   const [h, m] = t.split(':').map(Number);
