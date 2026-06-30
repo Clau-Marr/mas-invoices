@@ -327,6 +327,7 @@ textarea{resize:vertical;min-height:70px;}
     <div class="action-bar">
       <button class="btn btn-outline" onclick="renderInvoice()">↺ Refresh</button>
       <button class="btn btn-outline" onclick="window.print()">🖨 Print / Save PDF</button>
+      <button class="btn btn-purple" onclick="markSentAndEmail()">📧 Save &amp; Email</button>
       <button class="btn btn-success" onclick="markSent()">✓ Mark sent &amp; save</button>
     </div>
   </div>
@@ -1877,11 +1878,12 @@ ${pendingEmailPdfBase64}
     });
 }
 
-function markSent() {
+function markSent(skipReset) {
   const sel = getSelected();
   const billedClient = sel[0] ? clients.find(c => c.id === sel[0].clientId) : null;
+  const newId = uid();
   history.unshift({ 
-    id: uid(), 
+    id: newId, 
     num: document.getElementById('inv-num').value, 
     client: document.getElementById('inv-client').value, 
     clientEmail: document.getElementById('inv-email').value,
@@ -1905,10 +1907,25 @@ function markSent() {
   });
   assignments = assignments.filter(a => !sel.find(s => s.id === a.id));
   renderAssignments(); renderHistory(); renderSubmissions();
+  saveData();
+  if (!skipReset) {
+    showPanel('panel-connect'); setStep(1);
+    ['inv-client','inv-email','inv-num','inv-due','inv-notes','inv-payment'].forEach(x => document.getElementById(x).value = '');
+    document.getElementById('inv-date').value = '';
+    showToast('✅', 'Invoice sent — status updated to Submitted');
+  }
+  return newId;
+}
+
+function markSentAndEmail() {
+  const sel = getSelected();
+  if (!sel.length) { showToast('⚠️', 'Select at least one assignment'); return; }
+  const newId = markSent(true); // skipReset=true so the form doesn't clear before we open Email
   showPanel('panel-connect'); setStep(1);
   ['inv-client','inv-email','inv-num','inv-due','inv-notes','inv-payment'].forEach(x => document.getElementById(x).value = '');
   document.getElementById('inv-date').value = '';
-  saveData(); showToast('✅', 'Invoice sent — status updated to Submitted');
+  showToast('✅', 'Invoice saved — opening email…');
+  openEmailModal(newId);
 }
 
 function openSettingsModal() {
