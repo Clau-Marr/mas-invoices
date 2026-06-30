@@ -805,7 +805,7 @@ function renderImportedEvents() {
       <input type="checkbox" id="ievchk-${ev.id}" ${hasError ? 'disabled' : 'checked'} style="width:15px;height:15px;accent-color:var(--teal);" onchange="this.closest('.import-event').classList.toggle('checked',this.checked)">
       <div>
         <div style="font-weight:500">${ev.clientName} — ${ev.assignType}${isPortal ? ' <span class="badge badge-portal" style="font-size:10px;">Portal</span>' : ''}</div>
-        <div style="font-size:12px;color:var(--ink3);margin-top:2px;">${fmtDateShort(ev.date)} · ${ev.startTime||'?'}–${ev.endTime||'?'} · ${ev.patientName}${ev.po ? ' · PO: '+ev.po : ''} · ${ev.location||'—'}${ev.miles > 0 ? ' · '+ev.miles+' mi' : ''}${hasError ? '<br><span style="color:var(--red);font-weight:500">⚠ '+errMsg+'</span>' : ''}</div>
+        <div style="font-size:12px;color:var(--ink3);margin-top:2px;">${fmtDateShort(ev.date)} · ${ev.startTime ? fmtTime(ev.startTime) : '?'}–${ev.endTime ? fmtTime(ev.endTime) : '?'} · ${ev.patientName}${ev.po ? ' · PO: '+ev.po : ''} · ${ev.location||'—'}${ev.miles > 0 ? ' · '+ev.miles+' mi' : ''}${hasError ? '<br><span style="color:var(--red);font-weight:500">⚠ '+errMsg+'</span>' : ''}</div>
       </div>
       <div style="font-weight:600;color:var(--teal);white-space:nowrap;">${amt}</div>
     </div>`;
