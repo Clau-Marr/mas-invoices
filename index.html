@@ -866,6 +866,13 @@ function calcBillableHours(s, e, minH) {
   return { actualMins: actual, billableMins: billable, billableHours: billable / 60, overMin: actual > minMins };
 }
 function fmtMins(m) { const h = Math.floor(m/60), mn = m%60; return mn === 0 ? h+'h' : h+'h '+mn+'m'; }
+function fmtTime(t) {
+  if (!t) return t;
+  const [h, m] = t.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return h12 + ':' + String(m).padStart(2, '0') + ' ' + period;
+}
 
 // ── ASSIGNMENT MODAL ──────────────────────────────────────
 function openAddModal(id) {
@@ -1055,7 +1062,7 @@ function openStatusModal(assignId) {
 
   let body = `<div style="margin-bottom:14px;">
     <div style="font-size:13px;font-weight:500;margin-bottom:4px;">${a.type} · ${a.patientName}</div>
-    <div style="font-size:12px;color:var(--ink3);">${a.start}–${a.end} · ${a.location||'—'}${a.po ? ' · PO: '+a.po : ''}</div>
+    <div style="font-size:12px;color:var(--ink3);">${fmtTime(a.start)}–${fmtTime(a.end)} · ${a.location||'—'}${a.po ? ' · PO: '+a.po : ''}</div>
     <div style="margin-top:10px;">Current status: <span class="status-badge ${st.cls}">${st.icon} ${st.label}</span></div>
   </div>`;
 
@@ -1158,7 +1165,7 @@ function renderAssignments() {
       <input type="checkbox" id="chk-${a.id}" checked onchange="document.getElementById('ar-${a.id}').classList.toggle('selected',this.checked);updateSummary()">
       <div style="font-size:12px;font-weight:600;color:var(--ink2);">${fmtDateShort(a.date)}</div>
       <div><div style="font-weight:500">${a.clientName} — <span class="badge ${typeTag(a.type)}">${a.type}</span>${a.portalType !== 'none' ? ' <span class="badge badge-portal" style="font-size:10px;">Portal</span>' : ''}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.patientName}${a.po ? ' · PO: '+a.po : ''} · ${a.location||'—'}</div></div>
-      <div style="font-size:12px;color:var(--ink3)">${a.start}–${a.end}</div>
+      <div style="font-size:12px;color:var(--ink3)">${fmtTime(a.start)}–${fmtTime(a.end)}</div>
       <div style="font-size:12px;color:var(--ink3)">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}h<br><span style="font-size:11px">$${a.rate}/hr</span></div>
       <div style="font-size:12px;color:var(--ink3)">${a.mileageAmt > 0 ? '$'+a.mileageAmt.toFixed(2) : '—'}</div>
       <div style="font-weight:600;color:var(--green)">$${a.total.toFixed(2)}</div>
@@ -1266,7 +1273,7 @@ function renderSubmissions() {
       html += `<div class="sub-row">
         <div style="font-size:12px;font-weight:600;">${fmtDateShort(a.date)}</div>
         <div><div style="font-weight:500;font-size:12px;">${a.type}</div><div style="font-size:11px;color:var(--ink3);">${a.patientName}${a.po ? ' · PO:'+a.po : ''}</div></div>
-        <div style="font-size:12px;color:var(--ink3);">${a.start}–${a.end}</div>
+        <div style="font-size:12px;color:var(--ink3);">${fmtTime(a.start)}–${fmtTime(a.end)}</div>
         <div style="font-size:12px;font-weight:600;color:var(--green);">$${a.total.toFixed(2)}</div>
         <div><span class="status-badge ${st.cls}">${st.icon} ${st.label}</span></div>
         <div style="display:flex;gap:3px;">${linkBtn}<button class="btn btn-ghost btn-xs" onclick="openStatusModal('${a.id}')" title="Update status">✎</button></div>
@@ -1384,8 +1391,8 @@ function renderBatchPreview() {
       <td style="padding:7px 8px;">${fmtDateShort(a.date)}</td>
       <td style="padding:7px 8px;">${a.patientName}${a.po ? '<br><span style="font-size:10px;color:var(--ink3);">PO: '+a.po+'</span>' : ''}</td>
       <td style="padding:7px 8px;">${a.type}</td>
-      <td style="padding:7px 8px;text-align:center;">${a.start}</td>
-      <td style="padding:7px 8px;text-align:center;">${a.end}</td>
+      <td style="padding:7px 8px;text-align:center;">${fmtTime(a.start)}</td>
+      <td style="padding:7px 8px;text-align:center;">${fmtTime(a.end)}</td>
       <td style="padding:7px 8px;text-align:right;">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
       <td style="padding:7px 8px;text-align:right;">${a.miles > 0 ? a.miles : '—'}</td>
       <td style="padding:7px 8px;text-align:right;font-weight:600;">$${a.total.toFixed(2)}</td>
@@ -1450,7 +1457,7 @@ function renderInvoice() {
     const note = a.overMin ? `Actual: ${fmtMins(a.actualMins)}, billed: ${fmtMins(a.billableMins)} (15-min increments)` : `${a.minHours}hr minimum guaranteed`;
     return `<tr>
       <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
-      <td><div style="font-weight:500">${a.type} — ${a.patientName}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${a.start}–${a.end} · ${note}${a.po ? ' · PO: '+a.po : ''}</div></td>
+      <td><div style="font-weight:500">${a.type} — ${a.patientName}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${fmtTime(a.start)}–${fmtTime(a.end)} · ${note}${a.po ? ' · PO: '+a.po : ''}</div></td>
       <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
       <td class="right">$${a.rate.toFixed(2)}</td>
       <td class="right" style="font-weight:500">$${a.serviceAmt.toFixed(2)}</td>
