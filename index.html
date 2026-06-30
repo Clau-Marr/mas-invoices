@@ -524,9 +524,12 @@ textarea{resize:vertical;min-height:70px;}
     <div class="fg"><label>Subject</label><input type="text" id="email-subject"></div>
     <div class="fg"><label>Message</label><textarea id="email-body" style="min-height:140px;"></textarea></div>
   </div>
-  <div id="email-attachment-preview" style="margin-bottom:16px;padding:12px 14px;background:var(--canvas);border-radius:var(--r-sm);font-size:12px;color:var(--ink3);display:flex;align-items:center;gap:10px;">
-    <span style="font-size:20px;">📎</span>
-    <span id="email-attachment-name">Generating PDF…</span>
+  <div id="email-attachment-preview" style="margin-bottom:16px;padding:12px 14px;background:var(--canvas);border-radius:var(--r-sm);font-size:12px;color:var(--ink3);display:flex;align-items:center;justify-content:space-between;gap:10px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:20px;">📎</span>
+      <span id="email-attachment-name">Generating PDF…</span>
+    </div>
+    <button class="btn btn-outline btn-xs" id="email-view-pdf-btn" onclick="viewPendingEmailPdf()" style="display:none;">👁 View PDF</button>
   </div>
   <div class="modal-actions">
     <button class="btn btn-ghost" onclick="closeModal('email-modal')">Cancel</button>
@@ -1644,6 +1647,21 @@ function reprintInvoice(historyId) {
 let pendingEmailPdfBase64 = null;
 let pendingEmailHistoryId = null;
 
+function viewPendingEmailPdf() {
+  if (!pendingEmailPdfBase64) { showToast('⚠️', 'PDF is still generating'); return; }
+  try {
+    const byteChars = atob(pendingEmailPdfBase64);
+    const byteNumbers = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  } catch (e) {
+    showToast('⚠️', 'Could not open PDF preview');
+  }
+}
+
 function openEmailModal(historyId) {
   const h = history.find(x => x.id === historyId);
   if (!h) return;
@@ -1673,6 +1691,7 @@ MÁS Professional Services`;
   }
 
   document.getElementById('email-attachment-name').textContent = 'Generating PDF…';
+  document.getElementById('email-view-pdf-btn').style.display = 'none';
   document.getElementById('email-modal').style.display = 'flex';
 
   // Build the invoice HTML off-screen, then convert to PDF
@@ -1735,6 +1754,9 @@ function generateInvoicePdfForEmail(h) {
 
     const nameEl = document.getElementById('email-attachment-name');
     if (nameEl) nameEl.textContent = `Invoice-${h.num}.pdf ready to attach`;
+
+    const viewBtn = document.getElementById('email-view-pdf-btn');
+    if (viewBtn) viewBtn.style.display = 'inline-flex';
 
     const sendBtn = document.getElementById('email-send-btn');
     if (sendBtn && accessToken) sendBtn.disabled = false;
