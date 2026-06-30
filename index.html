@@ -70,6 +70,8 @@ textarea{resize:vertical;min-height:70px;}
 .badge-paid{background:var(--green-light);color:var(--green);}
 .badge-unpaid{background:#f0f0f0;color:#666;}
 .badge-short{background:var(--red-light);color:var(--red);}
+.badge-noshow{background:var(--red-light);color:var(--red);}
+.badge-latecancel{background:var(--gold-light);color:#7a5a10;}
 .hist-row-new{display:grid;grid-template-columns:110px 1fr 90px 90px 100px 290px;gap:10px;padding:13px 16px;border-radius:8px;font-size:13px;align-items:center;border:1.5px solid transparent;}
 .hist-row-new:hover{background:var(--canvas);border-color:var(--canvas3);}
 
@@ -404,6 +406,13 @@ textarea{resize:vertical;min-height:70px;}
     <div class="fg"><label>PO number (optional)</label><input type="text" id="m-po"></div>
     <div class="fg"><label>Start time</label><input type="time" id="m-start" oninput="calcBilling()"></div>
     <div class="fg"><label>End time</label><input type="time" id="m-end" oninput="calcBilling()"></div>
+    <div class="fg full"><label>Visit status</label>
+      <select id="m-status-flag">
+        <option value="">Completed (normal visit)</option>
+        <option value="no_show">No Show</option>
+        <option value="late_cancel">Late Cancellation</option>
+      </select>
+    </div>
   </div>
   <div class="info info-green" id="m-billing-preview" style="display:none;margin-bottom:14px;"></div>
   <div class="form-grid g2">
@@ -428,6 +437,7 @@ textarea{resize:vertical;min-height:70px;}
     <div class="fg"><label>Billing email</label><input type="email" id="c-email"></div>
     <div class="fg"><label>Billing contact</label><input type="text" id="c-contact"></div>
     <div class="fg"><label>Mileage rate ($/mile)</label><input type="number" id="c-mileage" placeholder="0.00" min="0" step="0.01"></div>
+    <div class="fg"><label>Interpreter ID (optional)</label><input type="text" id="c-interpreter-id" placeholder="Assigned by this agency"></div>
     <div class="fg full"><label>Address (optional)</label><input type="text" id="c-address"></div>
   </div>
 
@@ -878,7 +888,7 @@ function importSelected() {
       billableMins: ev.billing.billableMins, overMin: ev.billing.overMin,
       rate: ev.rateInfo.rate, minHours: ev.rateInfo.minHours,
       serviceAmt, miles: ev.miles, mileageRate: client?.mileageRate || 0,
-      mileageAmt, total: serviceAmt + mileageAmt, notes: '', submissionLink: '',
+      mileageAmt, total: serviceAmt + mileageAmt, notes: '', visitStatus: '', submissionLink: '',
       status: initialStatus, statusHistory: [{ status: initialStatus, date: todayStr() }],
       billingFreq: client?.billingFreq || 'single',
       portalType: client?.portalType || 'none',
@@ -975,6 +985,7 @@ function openAddModal(id) {
         document.getElementById('m-miles').value = a.miles || 0;
         document.getElementById('m-notes').value = a.notes || '';
         document.getElementById('m-sublink').value = a.submissionLink || '';
+        document.getElementById('m-status-flag').value = a.visitStatus || '';
         calcBilling();
       }, 50);
     }
@@ -982,6 +993,7 @@ function openAddModal(id) {
     document.getElementById('m-date').value = todayStr();
     ['m-patient','m-location','m-po','m-start','m-end','m-notes','m-sublink'].forEach(x => document.getElementById(x).value = '');
     document.getElementById('m-miles').value = 0;
+    document.getElementById('m-status-flag').value = '';
   }
   document.getElementById('assign-modal').style.display = 'flex';
 }
@@ -1073,6 +1085,11 @@ function saveAssignment() {
     if (existing.patientName !== patientName) changes.push('Patient: ' + existing.patientName + ' → ' + patientName);
     if (existing.miles !== (parseFloat(document.getElementById('m-miles').value) || 0)) changes.push('Miles: ' + existing.miles + ' → ' + (parseFloat(document.getElementById('m-miles').value) || 0));
     if (existing.total !== (svc + mil)) changes.push('Total: $' + existing.total.toFixed(2) + ' → $' + (svc + mil).toFixed(2));
+    const newVisitStatus = document.getElementById('m-status-flag').value;
+    if ((existing.visitStatus || '') !== newVisitStatus) {
+      const label = (v) => v === 'no_show' ? 'No Show' : v === 'late_cancel' ? 'Late Cancellation' : 'Completed';
+      changes.push('Visit status: ' + label(existing.visitStatus) + ' → ' + label(newVisitStatus));
+    }
     if (changes.length > 0) {
       editHistory = [...editHistory, { date: todayStr(), changes, previousStatus: existing.status }];
     }
@@ -1084,6 +1101,7 @@ function saveAssignment() {
     overMin: b.overMin, rate: r.rate, minHours: r.minHours, serviceAmt: svc, miles,
     mileageRate: c.mileageRate || 0, mileageAmt: mil, total: svc + mil,
     notes: document.getElementById('m-notes').value,
+    visitStatus: document.getElementById('m-status-flag').value,
     submissionLink: document.getElementById('m-sublink').value.trim(),
     status: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.status || initialStatus) : initialStatus,
     statusHistory: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.statusHistory || []) : [{ status: initialStatus, date: todayStr() }],
@@ -1231,6 +1249,21 @@ function advanceStatus(assignId, newStatus) {
 }
 
 // ── RENDER ASSIGNMENTS ────────────────────────────────────
+function invoiceStatusAndNotes(a) {
+  // Builds the client-facing label for No Show / Late Cancellation and any notes (e.g. follow-up info)
+  let parts = [];
+  if (a.visitStatus === 'no_show') parts.push('<strong style="color:var(--red)">No Show</strong>');
+  if (a.visitStatus === 'late_cancel') parts.push('<strong style="color:#7a5a10">Late Cancellation</strong>');
+  if (a.notes) parts.push(a.notes);
+  return parts.length ? ' · ' + parts.join(' · ') : '';
+}
+
+function visitStatusBadge(visitStatus) {
+  if (visitStatus === 'no_show') return ' <span class="badge badge-noshow" style="font-size:10px;">No Show</span>';
+  if (visitStatus === 'late_cancel') return ' <span class="badge badge-latecancel" style="font-size:10px;">Late Cancellation</span>';
+  return '';
+}
+
 function renderAssignments() {
   const el = document.getElementById('assignments-list');
   const sb = document.getElementById('sum-bar-wrap');
@@ -1240,7 +1273,7 @@ function renderAssignments() {
     return `<div class="assign-row selected" id="ar-${a.id}">
       <input type="checkbox" id="chk-${a.id}" checked onchange="document.getElementById('ar-${a.id}').classList.toggle('selected',this.checked);updateSummary()">
       <div style="font-size:12px;font-weight:600;color:var(--ink2);">${fmtDateShort(a.date)}</div>
-      <div><div style="font-weight:500">${a.clientName} — <span class="badge ${typeTag(a.type)}">${a.type}</span>${a.portalType !== 'none' ? ' <span class="badge badge-portal" style="font-size:10px;">Portal</span>' : ''}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.patientName}${a.po ? ' · PO: '+a.po : ''} · ${a.location||'—'}</div></div>
+      <div><div style="font-weight:500">${a.clientName} — <span class="badge ${typeTag(a.type)}">${a.type}</span>${a.portalType !== 'none' ? ' <span class="badge badge-portal" style="font-size:10px;">Portal</span>' : ''}${visitStatusBadge(a.visitStatus)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.patientName}${a.po ? ' · PO: '+a.po : ''} · ${a.location||'—'}</div></div>
       <div style="font-size:12px;color:var(--ink3)">${fmtTime(a.start)}–${fmtTime(a.end)}</div>
       <div style="font-size:12px;color:var(--ink3)">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}h<br><span style="font-size:11px">$${a.rate}/hr</span></div>
       <div style="font-size:12px;color:var(--ink3)">${a.mileageAmt > 0 ? '$'+a.mileageAmt.toFixed(2) : '—'}</div>
@@ -1529,11 +1562,13 @@ function renderInvoice() {
   const svcTotal = sel.reduce((s, a) => s + a.serviceAmt, 0);
   const milTotal = sel.reduce((s, a) => s + a.mileageAmt, 0);
   const grand = svcTotal + milTotal;
+  const topClient = sel[0] ? clients.find(c => c.id === sel[0].clientId) : null;
+  const interpreterIdLine = topClient?.interpreterId ? `<br>Interpreter ID: ${topClient.interpreterId}` : '';
   const rows = sel.map(a => {
     const note = a.overMin ? `Actual: ${fmtMins(a.actualMins)}, billed: ${fmtMins(a.billableMins)} (15-min increments)` : `${a.minHours}hr minimum guaranteed`;
     return `<tr>
       <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
-      <td><div style="font-weight:500">${a.type} — ${a.patientName}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${fmtTime(a.start)}–${fmtTime(a.end)} · ${note}${a.po ? ' · PO: '+a.po : ''}</div></td>
+      <td><div style="font-weight:500">${a.type} — ${a.patientName}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${fmtTime(a.start)}–${fmtTime(a.end)} · ${note}${a.po ? ' · PO: '+a.po : ''}${invoiceStatusAndNotes(a)}</div></td>
       <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
       <td class="right">$${a.rate.toFixed(2)}</td>
       <td class="right" style="font-weight:500">$${a.serviceAmt.toFixed(2)}</td>
@@ -1546,7 +1581,7 @@ function renderInvoice() {
     </div>
     <div class="inv-body">
       <div class="inv-parties">
-        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${cN}</div><div class="inv-pdet">${cE}</div></div>
+        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${cN}</div><div class="inv-pdet">${cE}${interpreterIdLine}</div></div>
         <div><div class="inv-plbl">Payment</div><div class="inv-pname">${terms}</div><div class="inv-pdet">${payment.split('\n').join('<br>')}</div></div>
       </div>
       <table class="inv-tbl">
@@ -1603,7 +1638,7 @@ function reprintInvoice(historyId) {
     const svcAmt = a.serviceAmt != null ? a.serviceAmt : (a.total - (a.mileageAmt || 0));
     return `<tr>
       <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
-      <td><div style="font-weight:500">${a.type} — ${a.patientName}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + note : ''}${a.po ? ' · PO: '+a.po : ''}</div></td>
+      <td><div style="font-weight:500">${a.type} — ${a.patientName}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + note : ''}${a.po ? ' · PO: '+a.po : ''}${invoiceStatusAndNotes(a)}</div></td>
       <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
       <td class="right">$${a.rate.toFixed(2)}</td>
       <td class="right" style="font-weight:500">$${svcAmt.toFixed(2)}</td>
@@ -1624,7 +1659,7 @@ function reprintInvoice(historyId) {
     </div>
     <div class="inv-body">
       <div class="inv-parties">
-        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${h.client}</div><div class="inv-pdet">${h.clientEmail || ''}</div></div>
+        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${h.client}</div><div class="inv-pdet">${h.clientEmail || ''}${h.interpreterId ? '<br>Interpreter ID: ' + h.interpreterId : ''}</div></div>
         <div><div class="inv-plbl">Payment</div><div class="inv-pname">${h.terms || 'Net 30'}</div><div class="inv-pdet">${(h.payment || '').split('\n').join('<br>')}</div></div>
       </div>
       <table class="inv-tbl">
@@ -1709,7 +1744,7 @@ function generateInvoicePdfForEmail(h) {
     const svcAmt = a.serviceAmt != null ? a.serviceAmt : (a.total - (a.mileageAmt || 0));
     return `<tr>
       <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
-      <td><div style="font-weight:500">${a.type} — ${a.patientName}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + note : ''}${a.po ? ' · PO: '+a.po : ''}</div></td>
+      <td><div style="font-weight:500">${a.type} — ${a.patientName}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + note : ''}${a.po ? ' · PO: '+a.po : ''}${invoiceStatusAndNotes(a)}</div></td>
       <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
       <td class="right">$${a.rate.toFixed(2)}</td>
       <td class="right" style="font-weight:500">$${svcAmt.toFixed(2)}</td>
@@ -1725,7 +1760,7 @@ function generateInvoicePdfForEmail(h) {
     </div>
     <div class="inv-body">
       <div class="inv-parties">
-        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${h.client}</div><div class="inv-pdet">${h.clientEmail || ''}</div></div>
+        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${h.client}</div><div class="inv-pdet">${h.clientEmail || ''}${h.interpreterId ? '<br>Interpreter ID: ' + h.interpreterId : ''}</div></div>
         <div><div class="inv-plbl">Payment</div><div class="inv-pname">${h.terms || 'Net 30'}</div><div class="inv-pdet">${(h.payment || '').split('\n').join('<br>')}</div></div>
       </div>
       <table class="inv-tbl">
@@ -1768,6 +1803,15 @@ function generateInvoicePdfForEmail(h) {
   });
 }
 
+function encodeMimeHeader(text) {
+  // Encodes a header value (like Subject) per RFC 2047 so special characters
+  // (em dashes —, accented letters like Á in MÁS, etc.) display correctly in any email client.
+  // If the text is plain ASCII, it's left as-is — no need to encode.
+  if (/^[\x00-\x7F]*$/.test(text)) return text;
+  const base64 = btoa(unescape(encodeURIComponent(text)));
+  return '=?UTF-8?B?' + base64 + '?=';
+}
+
 function sendInvoiceEmail() {
   if (!accessToken) { showToast('⚠️', 'Connect your Google account first'); return; }
   if (!pendingEmailPdfBase64) { showToast('⚠️', 'PDF is still generating — wait a moment'); return; }
@@ -1780,11 +1824,15 @@ function sendInvoiceEmail() {
   const h = history.find(x => x.id === pendingEmailHistoryId);
   const filename = `Invoice-${h?.num || 'MAS'}.pdf`;
 
+  // Email headers (To, Subject) need MIME "encoded-word" format for any non-ASCII characters
+  // (em dashes, accented letters like Á, etc.) — plain UTF-8 here causes garbled text like "Ã¢Â€Â"
+  const encodedSubject = encodeMimeHeader(subject);
+
   // Build a MIME multipart message with the PDF attached, base64url-encoded for Gmail API
   const boundary = 'mas_boundary_' + uid();
   const mimeMessage =
 `To: ${to}
-Subject: ${subject}
+Subject: ${encodedSubject}
 MIME-Version: 1.0
 Content-Type: multipart/mixed; boundary="${boundary}"
 
@@ -1831,11 +1879,13 @@ ${pendingEmailPdfBase64}
 
 function markSent() {
   const sel = getSelected();
+  const billedClient = sel[0] ? clients.find(c => c.id === sel[0].clientId) : null;
   history.unshift({ 
     id: uid(), 
     num: document.getElementById('inv-num').value, 
     client: document.getElementById('inv-client').value, 
     clientEmail: document.getElementById('inv-email').value,
+    interpreterId: billedClient?.interpreterId || '',
     date: todayStr(), 
     dueDate: document.getElementById('inv-due').value,
     terms: document.getElementById('inv-terms').value,
@@ -1843,7 +1893,7 @@ function markSent() {
     notes: document.getElementById('inv-notes').value,
     total: sel.reduce((s,a) => s+a.total, 0), 
     count: sel.length,
-    snapshot: sel.map(a => ({ id: a.id, patientName: a.patientName, type: a.type, date: a.date, start: a.start, end: a.end, billableHours: a.billableHours, actualMins: a.actualMins, billableMins: a.billableMins, overMin: a.overMin, minHours: a.minHours, rate: a.rate, serviceAmt: a.serviceAmt, total: a.total, miles: a.miles, mileageRate: a.mileageRate, mileageAmt: a.mileageAmt, location: a.location, po: a.po }))
+    snapshot: sel.map(a => ({ id: a.id, patientName: a.patientName, type: a.type, date: a.date, start: a.start, end: a.end, billableHours: a.billableHours, actualMins: a.actualMins, billableMins: a.billableMins, overMin: a.overMin, minHours: a.minHours, rate: a.rate, serviceAmt: a.serviceAmt, total: a.total, miles: a.miles, mileageRate: a.mileageRate, mileageAmt: a.mileageAmt, location: a.location, po: a.po, visitStatus: a.visitStatus, notes: a.notes }))
   });
   invCounter++;
   // Advance status to invoice_submitted for selected
@@ -1969,6 +2019,7 @@ function openClientModal(id) {
       document.getElementById('c-email').value = c.email;
       document.getElementById('c-contact').value = c.contact || '';
       document.getElementById('c-mileage').value = c.mileageRate || 0;
+      document.getElementById('c-interpreter-id').value = c.interpreterId || '';
       document.getElementById('c-address').value = c.address || '';
       // Frequency
       const freq = c.billingFreq || 'single';
@@ -1985,7 +2036,7 @@ function openClientModal(id) {
       c.rates.forEach(r => addRateRow(r));
     }
   } else {
-    ['c-name','c-email','c-contact','c-address'].forEach(x => document.getElementById(x).value = '');
+    ['c-name','c-email','c-contact','c-address','c-interpreter-id'].forEach(x => document.getElementById(x).value = '');
     document.getElementById('c-mileage').value = 0;
     document.getElementById('c-freq-single').checked = true;
     document.getElementById('c-portal-none').checked = true;
@@ -2022,6 +2073,7 @@ function saveClient() {
     id: editingClientId || uid(), name, email,
     contact: document.getElementById('c-contact').value,
     mileageRate: parseFloat(document.getElementById('c-mileage').value) || 0,
+    interpreterId: document.getElementById('c-interpreter-id').value.trim(),
     address: document.getElementById('c-address').value,
     billingFreq, portalType, portalUrl, rates
   };
@@ -2039,12 +2091,13 @@ function renderClients() {
     const portalLabel = c.portalType === 'portal_twopart' ? '<span class="badge badge-portal">Portal · 2-step</span>' :
                         c.portalType === 'portal_invoice' ? '<span class="badge badge-portal">Portal billing</span>' : '';
     const portalLink = c.portalUrl ? `<a href="${c.portalUrl}" target="_blank" class="btn btn-purple btn-xs" style="margin-top:8px;">🔗 Open portal ↗</a>` : '';
+    const interpreterIdLabel = c.interpreterId ? `<span class="badge badge-general">ID: ${c.interpreterId}</span>` : '';
     return `<div class="client-card ${c.portalType !== 'none' ? 'portal-agency' : ''}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
         <div>
           <div style="font-weight:600;font-size:15px;margin-bottom:4px">${c.name}</div>
           <div style="font-size:12px;color:var(--ink3);margin-bottom:6px">${c.email}</div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;">${freqLabel}${portalLabel}</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">${freqLabel}${portalLabel}${interpreterIdLabel}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
           <button class="btn btn-outline btn-xs" onclick="openClientModal('${c.id}')">Edit</button>
