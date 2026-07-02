@@ -1779,13 +1779,44 @@ function generateInvoicePdfForEmail(h) {
   </div>`;
   document.body.appendChild(container);
 
-  html2canvas(container, { scale: 2, backgroundColor: '#ffffff' }).then(canvas => {
-    const imgData = canvas.toDataURL('image/png');
+  html2canvas(container, { scale: 1.5, backgroundColor: '#ffffff' }).then(canvas => {
+    // Use JPEG compression instead of PNG — dramatically smaller file size
+    // quality: 0.85 gives good visual quality while keeping file size manageable
+    const imgData = canvas.toDataURL('image/jpeg', 0.85);
     const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({ unit: 'px', format: [canvas.width / 2, canvas.height / 2] });
-    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width / 2, canvas.height / 2);
-    const base64 = pdf.output('datauristring').split(',')[1];
-    pendingEmailPdfBase64 = base64;
+
+    // Calculate page dimensions — split into multiple pages if invoice is tall
+    const pageWidth = canvas.width / 1.5;
+    const pageHeight = canvas.height / 1.5;
+    const maxPageHeight = pageWidth * 1.414; // A4 ratio
+
+    if (pageHeight <= maxPageHeight) {
+      // Single page — fits on one sheet
+      const pdf = new jsPDF({ unit: 'px', format: [pageWidth, pageHeight] });
+      pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight);
+      const base64 = pdf.output('datauristring').split(',')[1];
+      pendingEmailPdfBase64 = base64;
+    } else {
+      // Multi-page — split into A4-sized pages
+      const pdf = new jsPDF({ unit: 'px', format: [pageWidth, maxPageHeight] });
+      let yOffset = 0;
+      let pageNum = 0;
+      while (yOffset < pageHeight) {
+        if (pageNum > 0) pdf.addPage();
+        // Draw just the slice of the canvas that fits on this page
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = Math.min(maxPageHeight * 1.5, canvas.height - yOffset * 1.5);
+        const ctx = sliceCanvas.getContext('2d');
+        ctx.drawImage(canvas, 0, yOffset * 1.5, sliceCanvas.width, sliceCanvas.height, 0, 0, sliceCanvas.width, sliceCanvas.height);
+        const sliceData = sliceCanvas.toDataURL('image/jpeg', 0.85);
+        pdf.addImage(sliceData, 'JPEG', 0, 0, pageWidth, sliceCanvas.height / 1.5);
+        yOffset += maxPageHeight;
+        pageNum++;
+      }
+      const base64 = pdf.output('datauristring').split(',')[1];
+      pendingEmailPdfBase64 = base64;
+    }
     document.body.removeChild(container);
 
     const nameEl = document.getElementById('email-attachment-name');
