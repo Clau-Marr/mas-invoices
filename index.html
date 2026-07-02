@@ -260,7 +260,8 @@ textarea{resize:vertical;min-height:70px;}
     <div class="card" id="events-card" style="display:none;">
       <div class="card-hdr">
         <div><div class="card-title">Imported assignments</div><div class="card-sub" id="events-sub">Select which to invoice.</div></div>
-        <div style="display:flex;gap:8px;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="events-search" placeholder="🔍 Search agency or patient…" oninput="filterEvents()" style="width:220px;padding:7px 12px;font-size:12px;">
           <button class="btn btn-outline btn-sm" onclick="selAllEv()">Select all</button>
           <button class="btn btn-ghost btn-sm" onclick="selNoneEv()">Clear</button>
         </div>
@@ -843,6 +844,8 @@ function similarityScore(a, b) {
 }
 
 function renderImportedEvents() {
+  const searchEl = document.getElementById('events-search');
+  if (searchEl) searchEl.value = '';
   const card = document.getElementById('events-card');
   const list = document.getElementById('events-list');
   card.style.display = 'block';
@@ -867,6 +870,16 @@ function renderImportedEvents() {
       <div style="font-weight:600;color:var(--teal);white-space:nowrap;">${amt}</div>
     </div>`;
   }).join('');
+}
+
+function filterEvents() {
+  const query = document.getElementById('events-search').value.toLowerCase().trim();
+  importedEvents.forEach(ev => {
+    const el = document.getElementById('iev-' + ev.id);
+    if (!el) return;
+    const searchText = (ev.clientName + ' ' + ev.agencyName + ' ' + ev.assignType + ' ' + ev.patientName).toLowerCase();
+    el.style.display = !query || searchText.includes(query) ? '' : 'none';
+  });
 }
 
 function selAllEv() { importedEvents.forEach(ev => { const c = document.getElementById('ievchk-'+ev.id); if (c && !c.disabled) { c.checked = true; document.getElementById('iev-'+ev.id).classList.add('checked'); } }); }
