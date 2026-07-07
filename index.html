@@ -2342,54 +2342,65 @@ window.addEventListener('load', () => {
 });
 
 function checkSingleTab(onSafe) {
-  // Use localStorage heartbeat to detect if another tab already has the app open
   const TAB_KEY = 'mas_active_tab';
   const TAB_ID = Math.random().toString(36).slice(2, 9);
-  const HEARTBEAT_MS = 1500;
-  const TIMEOUT_MS = 3000;
+  const HEARTBEAT_MS = 1000;  // heartbeat every 1 second
+  const TIMEOUT_MS = 2500;    // lock expires after 2.5s of no heartbeat — faster recovery
 
-  // Check if another tab is currently active
+  // Clear any stale lock on page load (handles crash/force-close scenario)
   const existing = localStorage.getItem(TAB_KEY);
   if (existing) {
-    const { id, ts } = JSON.parse(existing);
-    const age = Date.now() - ts;
-    if (id !== TAB_ID && age < TIMEOUT_MS) {
-      // Another tab is actively running — show warning and block this tab
-      showTabBlockBanner();
-      // Keep checking in case the other tab closes
-      const checkInterval = setInterval(() => {
-        const check = localStorage.getItem(TAB_KEY);
-        if (!check) {
-          clearInterval(checkInterval);
-          const blocker = document.getElementById('tab-block-banner');
-          if (blocker) blocker.remove();
-          onSafe();
-          startTabHeartbeat(TAB_KEY, TAB_ID, HEARTBEAT_MS);
-        } else {
-          const { ts: newTs } = JSON.parse(check);
-          if (Date.now() - newTs > TIMEOUT_MS) {
-            clearInterval(checkInterval);
-            const blocker = document.getElementById('tab-block-banner');
-            if (blocker) blocker.remove();
-            onSafe();
-            startTabHeartbeat(TAB_KEY, TAB_ID, HEARTBEAT_MS);
-          }
-        }
-      }, 1000);
-      return;
+    try {
+      const { ts } = JSON.parse(existing);
+      if (Date.now() - ts > TIMEOUT_MS) {
+        // Lock is stale — clear it immediately and proceed
+        localStorage.removeItem(TAB_KEY);
+      }
+    } catch(e) {
+      localStorage.removeItem(TAB_KEY);
     }
   }
 
-  // Safe to proceed — claim the tab
+  // Re-check after clearing stale lock
+  const current = localStorage.getItem(TAB_KEY);
+  if (current) {
+    try {
+      const { id, ts } = JSON.parse(current);
+      if (id !== TAB_ID && Date.now() - ts < TIMEOUT_MS) {
+        // Another tab is genuinely active
+        showTabBlockBanner();
+        const checkInterval = setInterval(() => {
+          const check = localStorage.getItem(TAB_KEY);
+          if (!check || Date.now() - JSON.parse(check).ts > TIMEOUT_MS) {
+            clearInterval(checkInterval);
+            localStorage.removeItem(TAB_KEY);
+            const blocker = document.getElementById('tab-block-banner');
+            if (blocker) { blocker.remove(); document.body.style.overflow = ''; }
+            onSafe();
+            startTabHeartbeat(TAB_KEY, TAB_ID, HEARTBEAT_MS);
+          }
+        }, 800);
+        return;
+      }
+    } catch(e) {
+      localStorage.removeItem(TAB_KEY);
+    }
+  }
+
+  // Safe to proceed
   onSafe();
   startTabHeartbeat(TAB_KEY, TAB_ID, HEARTBEAT_MS);
 
-  // Release lock when tab closes
+  // Release lock when tab closes or navigates away
   window.addEventListener('beforeunload', () => {
-    const current = localStorage.getItem(TAB_KEY);
-    if (current) {
-      const { id } = JSON.parse(current);
-      if (id === TAB_ID) localStorage.removeItem(TAB_KEY);
+    const c = localStorage.getItem(TAB_KEY);
+    if (c) { try { if (JSON.parse(c).id === TAB_ID) localStorage.removeItem(TAB_KEY); } catch(e) {} }
+  });
+
+  // Also release lock when tab becomes hidden (minimized/switched away) and reclaim when visible
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      localStorage.setItem(TAB_KEY, JSON.stringify({ id: TAB_ID, ts: Date.now() }));
     }
   });
 }
