@@ -64,7 +64,6 @@ textarea{resize:vertical;min-height:70px;}
 .badge-eval{background:#f5ebe5;color:#7a3010;}
 .badge-general{background:var(--canvas2);color:var(--ink2);}
 .badge-teal{background:var(--teal-light);color:var(--teal);}
-.badge-portal{background:var(--purple-light);color:var(--purple);}
 .badge-weekly{background:#fff3e0;color:#b85c00;}
 .badge-monthly{background:var(--blue-light);color:var(--blue);}
 .badge-paid{background:var(--green-light);color:var(--green);}
@@ -78,7 +77,6 @@ textarea{resize:vertical;min-height:70px;}
 /* Status badges */
 .status-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.03em;}
 .status-logged{background:#f0f0f0;color:#666;}
-.status-endtime{background:#fff3e0;color:#b85c00;}
 .status-submitted{background:var(--teal-light);color:var(--teal);}
 .status-paid{background:var(--green-light);color:var(--green);}
 
@@ -124,7 +122,6 @@ textarea{resize:vertical;min-height:70px;}
 .client-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;}
 .client-card{background:white;border:1.5px solid var(--canvas3);border-radius:var(--r);padding:20px;transition:all .18s;}
 .client-card:hover{border-color:var(--teal-mid);box-shadow:var(--sh);}
-.client-card.portal-agency{border-left:4px solid var(--purple);}
 .info{padding:12px 16px;border-radius:var(--r-sm);font-size:12px;line-height:1.65;}
 .info-teal{background:var(--teal-light);color:#0f4f48;border-left:3px solid var(--teal);}
 .info-gold{background:var(--gold-light);color:#7a5a10;border-left:3px solid var(--gold2);}
@@ -169,7 +166,6 @@ textarea{resize:vertical;min-height:70px;}
 .batch-group-body{padding:0 16px 12px;}
 
 /* Portal banner */
-.portal-banner{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--purple-light);border:1.5px solid #d0bff5;border-radius:var(--r-sm);margin-bottom:10px;}
 
 @media(max-width:680px){
   .hdr{padding:0 16px;}
@@ -342,7 +338,6 @@ textarea{resize:vertical;min-height:70px;}
       <select id="sub-filter" onchange="renderSubmissions()" style="width:auto;font-size:12px;padding:6px 10px;">
         <option value="all">All statuses</option>
         <option value="logged">Logged only</option>
-        <option value="endtime">End time pending</option>
         <option value="submitted">Submitted — awaiting payment</option>
         <option value="paid">Paid</option>
       </select>
@@ -400,7 +395,6 @@ textarea{resize:vertical;min-height:70px;}
     <div class="fg full"><label>Assignment type</label><select id="m-type" onchange="onTypeChange()"><option value="">— Select —</option></select></div>
   </div>
   <div class="info info-teal" id="m-rate-info" style="display:none;margin-bottom:14px;"></div>
-  <div id="m-portal-banner" style="display:none;margin-bottom:14px;"></div>
   <div class="form-grid g2" style="margin-bottom:14px;">
     <div class="fg"><label>Date</label><input type="date" id="m-date"></div>
     <div class="fg"><label>Patient name</label><input type="text" id="m-patient" placeholder="First Last"></div>
@@ -456,16 +450,9 @@ textarea{resize:vertical;min-height:70px;}
 
   <div class="divider"></div>
   <div style="margin-bottom:16px;">
-    <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Agency portal</div>
-    <div style="font-size:12px;color:var(--ink3);margin-bottom:10px;">Does this agency use their own billing portal instead of receiving your invoice?</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-      <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:13px;cursor:pointer;"><input type="radio" name="c-portal-type" id="c-portal-none" value="none" checked onchange="togglePortalFields()"> No portal — send my invoice</label>
-      <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:13px;cursor:pointer;"><input type="radio" name="c-portal-type" id="c-portal-invoice" value="portal_invoice" onchange="togglePortalFields()"> Portal — invoice only</label>
-      <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:13px;cursor:pointer;"><input type="radio" name="c-portal-type" id="c-portal-twopart" value="portal_twopart" onchange="togglePortalFields()"> Portal — end time + invoice</label>
-    </div>
-    <div id="portal-url-field" style="display:none;">
-      <div class="fg"><label>Portal URL</label><input type="url" id="c-portal-url" placeholder="https://agency-portal.com/submit"></div>
-    </div>
+    <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Agency portal link (optional)</div>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:10px;">Add a quick-access link to this agency's submission portal.</div>
+    <div class="fg"><label>Portal URL</label><input type="url" id="c-portal-url" placeholder="https://agency-portal.com/submit"></div>
   </div>
 
   <div class="divider"></div>
@@ -657,9 +644,8 @@ let isDemoMode = false;
 let realClientsBackup = null;
 
 // ── STATUS CONSTANTS ──────────────────────────────────────
-// status: 'logged' | 'endtime_submitted' | 'invoice_submitted' | 'paid'
+// status: 'logged' | 'invoice_submitted' | 'paid'
 // billingFreq: 'single' | 'weekly' | 'monthly'
-// portalType: 'none' | 'portal_invoice' | 'portal_twopart'
 
 // ── PERSISTENT STORAGE ───────────────────────────────────
 function saveData() {
@@ -860,11 +846,10 @@ function renderImportedEvents() {
       : 'No start/end time — make sure the event has a specific time, not all-day.';
     const client = ev.clientId ? clients.find(c => c.id === ev.clientId) : null;
     const amt = ev.billing && ev.rateInfo ? '$' + (ev.billing.billableHours * ev.rateInfo.rate + ev.miles * (client?.mileageRate || 0)).toFixed(2) : '—';
-    const isPortal = client && client.portalType !== 'none';
     return `<div class="import-event ${hasError ? 'error' : 'checked'}" id="iev-${ev.id}">
       <input type="checkbox" id="ievchk-${ev.id}" ${hasError ? 'disabled' : 'checked'} style="width:15px;height:15px;accent-color:var(--teal);" onchange="this.closest('.import-event').classList.toggle('checked',this.checked)">
       <div>
-        <div style="font-weight:500">${ev.clientName} — ${ev.assignType}${isPortal ? ' <span class="badge badge-portal" style="font-size:10px;">Portal</span>' : ''}</div>
+        <div style="font-weight:500">${ev.clientName} — ${ev.assignType}</div>
         <div style="font-size:12px;color:var(--ink3);margin-top:2px;">${fmtDateShort(ev.date)} · ${ev.startTime ? fmtTime(ev.startTime) : '?'}–${ev.endTime ? fmtTime(ev.endTime) : '?'} · ${ev.patientName}${ev.po ? ' · PO: '+ev.po : ''} · ${ev.location||'—'}${ev.miles > 0 ? ' · '+ev.miles+' mi' : ''}${hasError ? '<br><span style="color:var(--red);font-weight:500">⚠ '+errMsg+'</span>' : ''}</div>
       </div>
       <div style="font-weight:600;color:var(--teal);white-space:nowrap;">${amt}</div>
@@ -905,8 +890,6 @@ function importSelected() {
       mileageAmt, total: serviceAmt + mileageAmt, notes: '', visitStatus: '', submissionLink: '',
       status: initialStatus, statusHistory: [{ status: initialStatus, date: todayStr() }],
       billingFreq: client?.billingFreq || 'single',
-      portalType: client?.portalType || 'none',
-      portalUrl: client?.portalUrl || ''
     };
     assignments.push(a);
     // Also add to tracked
@@ -920,8 +903,6 @@ function importSelected() {
 }
 
 function getInitialStatus(client) {
-  if (!client || client.portalType === 'none') return 'logged';
-  if (client.portalType === 'portal_twopart') return 'logged'; // needs end time first
   return 'logged';
 }
 
@@ -983,7 +964,6 @@ function openAddModal(id) {
   document.getElementById('m-type').innerHTML = '<option value="">— Select —</option>';
   document.getElementById('m-rate-info').style.display = 'none';
   document.getElementById('m-billing-preview').style.display = 'none';
-  document.getElementById('m-portal-banner').style.display = 'none';
   if (id) {
     const a = assignments.find(x => x.id === id);
     if (a) {
@@ -1018,20 +998,7 @@ function onClientChange() {
   t.innerHTML = '<option value="">— Select —</option>' + (c ? c.rates.map(r => `<option value="${r.type}">${r.type}</option>`).join('') : '');
   document.getElementById('m-rate-info').style.display = 'none';
   document.getElementById('m-billing-preview').style.display = 'none';
-  // Show portal banner if needed
-  const banner = document.getElementById('m-portal-banner');
-  if (c && c.portalType !== 'none') {
-    banner.style.display = 'block';
-    const label = c.portalType === 'portal_twopart' ? '2-step: submit end time first, then invoice via portal' : 'Invoice via agency portal';
-    banner.innerHTML = `<div class="portal-banner">
-      <span style="font-size:20px;">🔗</span>
-      <div style="flex:1;"><strong style="color:var(--purple);">${c.name} uses their own portal</strong><br>
-      <span style="font-size:12px;color:var(--ink3);">${label}</span></div>
-      ${c.portalUrl ? `<a href="${c.portalUrl}" target="_blank" class="btn btn-purple btn-sm">Open portal ↗</a>` : ''}
-    </div>`;
-  } else {
-    banner.style.display = 'none';
-  }
+
 }
 
 function onTypeChange() {
@@ -1120,8 +1087,6 @@ function saveAssignment() {
     status: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.status || initialStatus) : initialStatus,
     statusHistory: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.statusHistory || []) : [{ status: initialStatus, date: todayStr() }],
     billingFreq: c.billingFreq || 'single',
-    portalType: c.portalType || 'none',
-    portalUrl: c.portalUrl || '',
     editHistory
   };
   if (editingAssignId) {
@@ -1140,21 +1105,15 @@ function saveAssignment() {
 }
 
 // ── STATUS MANAGEMENT ─────────────────────────────────────
-function getStatusLabel(status, portalType) {
+function getStatusLabel(status) {
   if (status === 'logged') return { label: 'Logged', cls: 'status-logged', icon: '📋' };
-  if (status === 'endtime_submitted') return { label: 'End time submitted', cls: 'status-endtime', icon: '⏱' };
   if (status === 'invoice_submitted') return { label: 'Submitted', cls: 'status-submitted', icon: '📤' };
   if (status === 'paid') return { label: 'Paid', cls: 'status-paid', icon: '✅' };
   return { label: status, cls: 'status-logged', icon: '📋' };
 }
 
 function getNextStatuses(a) {
-  const isTwoPart = a.portalType === 'portal_twopart';
-  if (a.status === 'logged') {
-    if (isTwoPart) return ['endtime_submitted'];
-    return ['invoice_submitted'];
-  }
-  if (a.status === 'endtime_submitted') return ['invoice_submitted'];
+  if (a.status === 'logged') return ['invoice_submitted'];
   if (a.status === 'invoice_submitted') return ['paid'];
   return [];
 }
@@ -1164,7 +1123,7 @@ function openStatusModal(assignId) {
   const a = trackedAssignments.find(x => x.id === assignId) || assignments.find(x => x.id === assignId);
   if (!a) return;
   const client = clients.find(c => c.id === a.clientId);
-  const st = getStatusLabel(a.status, a.portalType);
+  const st = getStatusLabel(a.status);
   const nexts = getNextStatuses(a);
   document.getElementById('status-modal-title').textContent = a.clientName + ' — ' + fmtDateShort(a.date);
 
@@ -1173,15 +1132,6 @@ function openStatusModal(assignId) {
     <div style="font-size:12px;color:var(--ink3);">${fmtTime(a.start)}–${fmtTime(a.end)} · ${a.location||'—'}${a.po ? ' · PO: '+a.po : ''}</div>
     <div style="margin-top:10px;">Current status: <span class="status-badge ${st.cls}">${st.icon} ${st.label}</span></div>
   </div>`;
-
-  // Portal links
-  if (a.portalUrl && a.status !== 'paid') {
-    body += `<div class="portal-banner" style="margin-bottom:14px;">
-      <span style="font-size:18px;">🔗</span>
-      <div style="flex:1;font-size:12px;color:var(--purple);">Agency portal</div>
-      <a href="${a.portalUrl}" target="_blank" class="btn btn-purple btn-sm">Open ↗</a>
-    </div>`;
-  }
 
   // Assignment-specific submission link
   if (a.status !== 'paid') {
@@ -1199,7 +1149,7 @@ function openStatusModal(assignId) {
   if (a.statusHistory && a.statusHistory.length > 1) {
     body += `<div style="font-size:11px;color:var(--ink3);margin-bottom:10px;">`;
     a.statusHistory.forEach(h => {
-      const hs = getStatusLabel(h.status, a.portalType);
+      const hs = getStatusLabel(h.status);
       body += `<div>${hs.icon} ${hs.label} — ${fmtDateShort(h.date)}</div>`;
     });
     body += `</div>`;
@@ -1219,9 +1169,8 @@ function openStatusModal(assignId) {
 
   let actions = `<button class="btn btn-ghost" onclick="closeModal('status-modal')">Close</button>`;
   nexts.forEach(next => {
-    const ns = getStatusLabel(next, a.portalType);
-    const label = next === 'endtime_submitted' ? '✓ Mark end time submitted' :
-                  next === 'invoice_submitted' ? '📤 Mark invoice submitted' :
+    const ns = getStatusLabel(next);
+    const label = next === 'invoice_submitted' ? '📤 Mark invoice submitted' :
                   next === 'paid' ? '💚 Mark as paid' : ns.label;
     actions += `<button class="btn btn-teal" onclick="advanceStatus('${assignId}','${next}')">${label}</button>`;
   });
@@ -1283,11 +1232,11 @@ function renderAssignments() {
   const sb = document.getElementById('sum-bar-wrap');
   if (!assignments.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><h3>No assignments yet</h3><p>Import from Google Calendar or add manually.</p></div>'; sb.style.display = 'none'; return; }
   el.innerHTML = assignments.map(a => {
-    const st = getStatusLabel(a.status, a.portalType);
+    const st = getStatusLabel(a.status);
     return `<div class="assign-row selected" id="ar-${a.id}">
       <input type="checkbox" id="chk-${a.id}" checked onchange="document.getElementById('ar-${a.id}').classList.toggle('selected',this.checked);updateSummary()">
       <div style="font-size:12px;font-weight:600;color:var(--ink2);">${fmtDateShort(a.date)}</div>
-      <div><div style="font-weight:500">${a.clientName} — <span class="badge ${typeTag(a.type)}">${a.type}</span>${a.portalType !== 'none' ? ' <span class="badge badge-portal" style="font-size:10px;">Portal</span>' : ''}${visitStatusBadge(a.visitStatus)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.patientName}${a.po ? ' · PO: '+a.po : ''} · ${a.location||'—'}</div></div>
+      <div><div style="font-weight:500">${a.clientName} — <span class="badge ${typeTag(a.type)}">${a.type}</span>${visitStatusBadge(a.visitStatus)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.patientName}${a.po ? ' · PO: '+a.po : ''} · ${a.location||'—'}</div></div>
       <div style="font-size:12px;color:var(--ink3)">${fmtTime(a.start)}–${fmtTime(a.end)}</div>
       <div style="font-size:12px;color:var(--ink3)">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}h<br><span style="font-size:11px">$${a.rate}/hr</span></div>
       <div style="font-size:12px;color:var(--ink3)">${a.mileageAmt > 0 ? '$'+a.mileageAmt.toFixed(2) : '—'}</div>
@@ -1336,17 +1285,14 @@ function renderSubmissions() {
   const container = document.getElementById('sub-groups-container');
 
   // Alerts
-  const endTimePending = trackedAssignments.filter(a => a.portalType === 'portal_twopart' && a.status === 'logged');
-  const unsubmitted = trackedAssignments.filter(a => a.status === 'logged' && a.portalType !== 'portal_twopart');
+  const unsubmitted = trackedAssignments.filter(a => a.status === 'logged');
   let alertHtml = '';
-  if (endTimePending.length) alertHtml += `<div class="info info-gold" style="margin-bottom:8px;">⏱ <strong>${endTimePending.length} assignment${endTimePending.length>1?'s':''}</strong> need end time submitted to agency portal first.</div>`;
   if (unsubmitted.length) alertHtml += `<div class="info info-teal" style="margin-bottom:8px;">📋 <strong>${unsubmitted.length} assignment${unsubmitted.length>1?'s':''}</strong> logged and ready to invoice.</div>`;
   alertsEl.innerHTML = alertHtml;
 
   // Filter
   let filtered = filterVal === 'all' ? trackedAssignments : trackedAssignments.filter(a => {
     if (filterVal === 'logged') return a.status === 'logged';
-    if (filterVal === 'endtime') return a.status === 'endtime_submitted';
     if (filterVal === 'submitted') return a.status === 'invoice_submitted';
     if (filterVal === 'paid') return a.status === 'paid';
     return true;
@@ -1360,7 +1306,7 @@ function renderSubmissions() {
   // Group by client then sort by date
   const groups = {};
   filtered.forEach(a => {
-    if (!groups[a.clientId]) groups[a.clientId] = { clientName: a.clientName, billingFreq: a.billingFreq, portalType: a.portalType, portalUrl: a.portalUrl, items: [] };
+    if (!groups[a.clientId]) groups[a.clientId] = { clientName: a.clientName, billingFreq: a.billingFreq, portalUrl: a.portalUrl, items: [] };
     groups[a.clientId].items.push(a);
   });
 
@@ -1369,7 +1315,6 @@ function renderSubmissions() {
     g.items.sort((a, b) => a.date.localeCompare(b.date));
     const freqBadge = g.billingFreq === 'weekly' ? '<span class="badge badge-weekly">Weekly</span>' :
                       g.billingFreq === 'monthly' ? '<span class="badge badge-monthly">Monthly</span>' : '';
-    const portalBadge = g.portalType !== 'none' ? '<span class="badge badge-portal">Portal</span>' : '';
     const total = g.items.reduce((s, a) => s + a.total, 0);
 
     html += `<div class="sub-group">
@@ -1378,18 +1323,13 @@ function renderSubmissions() {
         <div class="sub-group-meta">${g.items.length} assignment${g.items.length>1?'s':''} · $${total.toFixed(2)}</div>
       </div>`;
 
-    // Portal link
-    if (g.portalUrl) {
-      html += `<div style="margin-bottom:8px;"><a href="${g.portalUrl}" target="_blank" class="btn btn-purple btn-sm">🔗 Open ${g.clientName} portal ↗</a></div>`;
-    }
-
     // Header row
     html += `<div style="display:grid;grid-template-columns:90px 1fr 80px 90px 120px 36px;gap:8px;padding:6px 14px;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);">
       <span>Date</span><span>Assignment</span><span>Time</span><span>Total</span><span>Status</span><span></span>
     </div>`;
 
     g.items.forEach(a => {
-      const st = getStatusLabel(a.status, a.portalType);
+      const st = getStatusLabel(a.status);
       const linkBtn = a.submissionLink
         ? `<a href="${a.submissionLink}" target="_blank" class="btn btn-purple btn-xs" title="Open submission link">🔗</a>`
         : '';
@@ -1404,7 +1344,7 @@ function renderSubmissions() {
     });
 
     // Batch generate button for weekly/monthly
-    if (g.billingFreq !== 'single' && g.portalType === 'none') {
+    if (g.billingFreq !== 'single') {
       const unsubCount = g.items.filter(a => a.status === 'logged').length;
       if (unsubCount > 0) {
         html += `<div style="display:flex;justify-content:flex-end;margin-top:8px;">
@@ -2064,11 +2004,6 @@ function restoreBackup(event) {
 }
 
 // ── CLIENT MODAL ──────────────────────────────────────────
-function togglePortalFields() {
-  const val = document.querySelector('input[name="c-portal-type"]:checked')?.value;
-  document.getElementById('portal-url-field').style.display = (val && val !== 'none') ? 'block' : 'none';
-}
-
 function openClientModal(id) {
   editingClientId = id || null;
   document.getElementById('client-modal-title').textContent = id ? 'Edit client' : 'Add client';
@@ -2087,22 +2022,14 @@ function openClientModal(id) {
       document.getElementById('c-freq-single').checked = freq === 'single';
       document.getElementById('c-freq-weekly').checked = freq === 'weekly';
       document.getElementById('c-freq-monthly').checked = freq === 'monthly';
-      // Portal
-      const pt = c.portalType || 'none';
-      document.getElementById('c-portal-none').checked = pt === 'none';
-      document.getElementById('c-portal-invoice').checked = pt === 'portal_invoice';
-      document.getElementById('c-portal-twopart').checked = pt === 'portal_twopart';
       document.getElementById('c-portal-url').value = c.portalUrl || '';
-      togglePortalFields();
       c.rates.forEach(r => addRateRow(r));
     }
   } else {
     ['c-name','c-email','c-contact','c-address','c-interpreter-id'].forEach(x => document.getElementById(x).value = '');
     document.getElementById('c-mileage').value = 0;
     document.getElementById('c-freq-single').checked = true;
-    document.getElementById('c-portal-none').checked = true;
     document.getElementById('c-portal-url').value = '';
-    togglePortalFields();
     addRateRow();
   }
   document.getElementById('client-modal').style.display = 'flex';
@@ -2128,7 +2055,6 @@ function saveClient() {
   });
   if (!rates.length) { showToast('⚠️', 'Add at least one type'); return; }
   const billingFreq = document.querySelector('input[name="c-freq"]:checked')?.value || 'single';
-  const portalType = document.querySelector('input[name="c-portal-type"]:checked')?.value || 'none';
   const portalUrl = document.getElementById('c-portal-url').value.trim();
   const c = {
     id: editingClientId || uid(), name, email,
@@ -2136,7 +2062,7 @@ function saveClient() {
     mileageRate: parseFloat(document.getElementById('c-mileage').value) || 0,
     interpreterId: document.getElementById('c-interpreter-id').value.trim(),
     address: document.getElementById('c-address').value,
-    billingFreq, portalType, portalUrl, rates
+    billingFreq, portalUrl, rates
   };
   if (editingClientId) clients = clients.map(x => x.id === editingClientId ? c : x); else clients.push(c);
   saveData(); closeModal('client-modal'); renderClients(); updateClientDropdowns(); showToast('✅', 'Client saved');
@@ -2149,16 +2075,14 @@ function renderClients() {
     const freqLabel = c.billingFreq === 'weekly' ? '<span class="badge badge-weekly">Weekly billing</span>' :
                       c.billingFreq === 'monthly' ? '<span class="badge badge-monthly">Monthly billing</span>' :
                       '<span class="badge badge-general">Per assignment</span>';
-    const portalLabel = c.portalType === 'portal_twopart' ? '<span class="badge badge-portal">Portal · 2-step</span>' :
-                        c.portalType === 'portal_invoice' ? '<span class="badge badge-portal">Portal billing</span>' : '';
-    const portalLink = c.portalUrl ? `<a href="${c.portalUrl}" target="_blank" class="btn btn-purple btn-xs" style="margin-top:8px;">🔗 Open portal ↗</a>` : '';
+    const portalLink = c.portalUrl ? `<a href="${c.portalUrl}" target="_blank" class="btn btn-outline btn-xs" style="margin-top:8px;">🔗 Portal ↗</a>` : '';
     const interpreterIdLabel = c.interpreterId ? `<span class="badge badge-general">ID: ${c.interpreterId}</span>` : '';
-    return `<div class="client-card ${c.portalType !== 'none' ? 'portal-agency' : ''}">
+    return `<div class="client-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
         <div>
           <div style="font-weight:600;font-size:15px;margin-bottom:4px">${c.name}</div>
           <div style="font-size:12px;color:var(--ink3);margin-bottom:6px">${c.email}</div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;">${freqLabel}${portalLabel}${interpreterIdLabel}</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">${freqLabel}${interpreterIdLabel}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
           <button class="btn btn-outline btn-xs" onclick="openClientModal('${c.id}')">Edit</button>
@@ -2365,9 +2289,9 @@ function loadDemo() {
   }
   isDemoMode = true;
   clients = [
-    { id: 'c1', name: 'Valley Medical Group', email: 'billing@valleymedical.com', contact: 'AP', mileageRate: 0.67, address: '', billingFreq: 'weekly', portalType: 'none', portalUrl: '', rates: [{ type: 'Medical follow-up', rate: 35, minHours: 2 }, { type: 'Evaluation', rate: 50, minHours: 3 }] },
-    { id: 'c2', name: 'Bay Area Legal Services', email: 'invoices@balegal.com', contact: 'Finance', mileageRate: 0, address: '', billingFreq: 'monthly', portalType: 'none', portalUrl: '', rates: [{ type: 'Legal deposition', rate: 65, minHours: 2 }] },
-    { id: 'c3', name: 'MedStaff Agency', email: 'billing@medstaff.com', contact: 'AP', mileageRate: 0.50, address: '', billingFreq: 'single', portalType: 'portal_twopart', portalUrl: 'https://medstaff-portal.example.com', rates: [{ type: 'Medical appointment', rate: 40, minHours: 2 }, { type: 'Evaluation', rate: 50, minHours: 3 }] }
+    { id: 'c1', name: 'Valley Medical Group', email: 'billing@valleymedical.com', contact: 'AP', mileageRate: 0.67, address: '', billingFreq: 'weekly', portalUrl: '', rates: [{ type: 'Medical follow-up', rate: 35, minHours: 2 }, { type: 'Evaluation', rate: 50, minHours: 3 }] },
+    { id: 'c2', name: 'Bay Area Legal Services', email: 'invoices@balegal.com', contact: 'Finance', mileageRate: 0, address: '', billingFreq: 'monthly', portalUrl: '', rates: [{ type: 'Legal deposition', rate: 65, minHours: 2 }] },
+    { id: 'c3', name: 'MedStaff Agency', email: 'billing@medstaff.com', contact: 'AP', mileageRate: 0.50, address: '', billingFreq: 'single', portalUrl: '', rates: [{ type: 'Medical appointment', rate: 40, minHours: 2 }, { type: 'Evaluation', rate: 50, minHours: 3 }] }
   ];
   renderClients(); updateClientDropdowns();
   showDemoBanner();
