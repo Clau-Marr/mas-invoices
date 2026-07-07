@@ -590,7 +590,8 @@ textarea{resize:vertical;min-height:70px;}
   <div class="divider"></div>
   <div style="margin-bottom:14px;">
     <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Backup &amp; restore</div>
-    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.6;">Your data lives only in this browser. Download a backup regularly and keep it somewhere safe, like Google Drive, so you never lose it.</div>
+    <div id="drive-sync-status" style="font-size:12px;margin-bottom:12px;padding:10px 14px;background:var(--canvas);border-radius:var(--r-sm);"></div>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:10px;line-height:1.6;">Manual backup — download a copy to keep safe just in case.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
       <button class="btn btn-teal btn-sm" onclick="downloadBackup()">⬇ Download backup</button>
       <button class="btn btn-outline btn-sm" onclick="document.getElementById('restore-file-input').click()">⬆ Restore from backup</button>
@@ -606,7 +607,7 @@ textarea{resize:vertical;min-height:70px;}
 <script>
 // ── CONFIG ────────────────────────────────────────────────
 const CLIENT_ID = '566546508985-12fom6evof5isvjmea1nqlfm3pj82aun.apps.googleusercontent.com';
-const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.compose';
+const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/drive.file';
 
 // ── STATE ─────────────────────────────────────────────────
 let clients = [];
@@ -620,6 +621,7 @@ let editingClientId = null;
 let accessToken = null;
 let tokenClient = null;
 let currentStatusAssignId = null;
+let driveBackupFileId = null; // Google Drive file ID for auto-backup
 let businessInfo = { name: 'Claudia Marroquin', addr1: '', addr2: 'Morgan Hill, CA' };
 let isDemoMode = false;
 let realClientsBackup = null;
@@ -638,6 +640,84 @@ function saveData() {
     localStorage.setItem('mas_tracked', JSON.stringify(trackedAssignments));
     localStorage.setItem('mas_business_info', JSON.stringify(businessInfo));
   } catch(e) { console.log('Save error:', e); }
+  // Auto-save to Google Drive in background if connected
+  if (accessToken) saveToDrive();
+}
+
+let driveBackupTimeout = null;
+function saveToDrive() {
+  // Debounce — wait 3 seconds after last change before writing to Drive
+  clearTimeout(driveBackupTimeout);
+  driveBackupTimeout = setTimeout(() => {
+    const backup = {
+      backupType: 'mas-invoices-backup',
+      backupVersion: 1,
+      createdAt: new Date().toISOString(),
+      clients, history, invCounter, trackedAssignments, businessInfo
+    };
+    const content = JSON.stringify(backup, null, 2);
+
+    if (driveBackupFileId) {
+      // Update existing file
+      fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveBackupFileId}?uploadType=media`, {
+        method: 'PATCH',
+        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: content
+      }).then(r => {
+        if (!r.ok) {
+          driveBackupFileId = null;
+          localStorage.removeItem('mas_drive_file_id');
+          saveToDrive();
+        } else {
+          showDriveSaveIndicator();
+        }
+      }).catch(e => console.log('Drive update error:', e));
+    } else {
+      // Create new file in MÁS Backups folder
+      findOrCreateDriveFolder().then(folderId => {
+        const metadata = { name: 'MAS-auto-backup.json', parents: folderId ? [folderId] : [], mimeType: 'application/json' };
+        const form = new FormData();
+        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+        form.append('file', new Blob([content], { type: 'application/json' }));
+        return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + accessToken },
+          body: form
+        });
+      }).then(r => r.json()).then(data => {
+        if (data.id) {
+          driveBackupFileId = data.id;
+          localStorage.setItem('mas_drive_file_id', data.id);
+          showDriveSaveIndicator();
+        }
+      }).catch(e => console.log('Drive create error:', e));
+    }
+  }, 3000);
+}
+
+function findOrCreateDriveFolder() {
+  return fetch("https://www.googleapis.com/drive/v3/files?q=name%3D'MA%CC%81S%20Backups'%20and%20mimeType%3D'application%2Fvnd.google-apps.folder'%20and%20trashed%3Dfalse&fields=files(id)", {
+    headers: { Authorization: 'Bearer ' + accessToken }
+  }).then(r => r.json()).then(data => {
+    if (data.files && data.files.length > 0) return data.files[0].id;
+    return fetch('https://www.googleapis.com/drive/v3/files', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'MÁS Backups', mimeType: 'application/vnd.google-apps.folder' })
+    }).then(r => r.json()).then(f => f.id);
+  }).catch(() => null);
+}
+
+function showDriveSaveIndicator() {
+  const existing = document.getElementById('drive-save-toast');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.id = 'drive-save-toast';
+  el.style.cssText = 'position:fixed;bottom:20px;left:20px;background:var(--green);color:white;padding:8px 14px;border-radius:var(--r);font-size:12px;font-weight:500;display:flex;align-items:center;gap:6px;box-shadow:var(--sh);z-index:200;opacity:0;transition:opacity .3s;';
+  el.innerHTML = '☁️ Saved to Drive';
+  document.body.appendChild(el);
+  setTimeout(() => el.style.opacity = '1', 50);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2500);
 }
 
 function loadData() {
@@ -647,11 +727,13 @@ function loadData() {
     const n = localStorage.getItem('mas_counter');
     const t = localStorage.getItem('mas_tracked');
     const b = localStorage.getItem('mas_business_info');
+    const d = localStorage.getItem('mas_drive_file_id');
     if (c) clients = JSON.parse(c);
     if (h) history = JSON.parse(h);
     if (n) invCounter = parseInt(n);
     if (t) trackedAssignments = JSON.parse(t);
     if (b) businessInfo = JSON.parse(b);
+    if (d) driveBackupFileId = d;
   } catch(e) { console.log('Load error:', e); }
 }
 
@@ -1897,7 +1979,21 @@ function openSettingsModal() {
   document.getElementById('set-addr2').value = businessInfo.addr2 || '';
   const lastBackup = localStorage.getItem('mas_last_backup');
   const el = document.getElementById('backup-last-saved');
-  el.textContent = lastBackup ? 'Last backup downloaded: ' + new Date(lastBackup).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : 'No backup downloaded yet — download one now.';
+  el.textContent = lastBackup ? 'Last manual backup: ' + new Date(lastBackup).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : 'No manual backup downloaded yet.';
+  // Drive sync status
+  const driveEl = document.getElementById('drive-sync-status');
+  if (driveEl) {
+    if (!accessToken) {
+      driveEl.innerHTML = '☁️ <strong>Drive auto-save:</strong> Connect Google Calendar to enable automatic Drive backup.';
+      driveEl.style.color = 'var(--ink3)';
+    } else if (driveBackupFileId) {
+      driveEl.innerHTML = '✅ <strong>Drive auto-save is ON</strong> — your data saves automatically to Google Drive every time you make a change.';
+      driveEl.style.color = 'var(--green)';
+    } else {
+      driveEl.innerHTML = '🔄 <strong>Drive auto-save:</strong> Will create a backup file in your Drive on next save.';
+      driveEl.style.color = 'var(--ink2)';
+    }
+  }
   document.getElementById('settings-modal').style.display = 'flex';
 }
 
