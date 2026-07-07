@@ -193,7 +193,6 @@ textarea{resize:vertical;min-height:70px;}
   <div class="logo">MÁS <span class="logo-sub">Professional Services</span></div>
   <div class="hdr-nav">
     <button class="hdr-tab active" onclick="showPage('page-invoice')">New Invoice</button>
-    <button class="hdr-tab" onclick="showPage('page-submissions')">Submissions</button>
     <button class="hdr-tab" onclick="showPage('page-clients')">Clients</button>
     <button class="hdr-tab" onclick="showPage('page-history')">History</button>
     <button class="hdr-tab" onclick="openSettingsModal()" title="Business settings">⚙</button>
@@ -330,25 +329,7 @@ textarea{resize:vertical;min-height:70px;}
   </div>
 </div>
 
-<!-- PAGE: SUBMISSIONS -->
-<div class="page" id="page-submissions">
-  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:12px;">
-    <div><div class="page-title">Submissions Tracker</div><div class="page-sub">Track what's been submitted, what's pending, and what's been paid.</div></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <select id="sub-filter" onchange="renderSubmissions()" style="width:auto;font-size:12px;padding:6px 10px;">
-        <option value="all">All statuses</option>
-        <option value="logged">Logged only</option>
-        <option value="submitted">Submitted — awaiting payment</option>
-        <option value="paid">Paid</option>
-      </select>
-    </div>
-  </div>
 
-  <!-- Pending actions alert -->
-  <div id="sub-alerts" style="margin-bottom:16px;"></div>
-
-  <div id="sub-groups-container"></div>
-</div>
 
 <!-- PAGE: CLIENTS -->
 <div class="page" id="page-clients">
@@ -1205,7 +1186,6 @@ function advanceStatus(assignId, newStatus) {
   });
   saveData();
   closeModal('status-modal');
-  renderSubmissions();
   renderAssignments();
   const st = getStatusLabel(newStatus);
   showToast(st.icon, 'Status updated: ' + st.label);
@@ -1575,7 +1555,6 @@ function deleteInvoice(historyId) {
   history = history.filter(x => x.id !== historyId);
   saveData();
   renderHistory();
-  renderSubmissions();
   showToast('🗑', 'Invoice deleted' + (hasAssignments ? ' — assignments returned to Logged' : ''));
 }
 
@@ -2268,7 +2247,6 @@ function savePayment() {
   saveData();
   closeModal('payment-modal');
   renderHistory();
-  renderSubmissions();
   const h = history.find(x => x.id === invoiceId);
   if (h?.paymentStatus === 'paid') showToast('💚', 'Payment recorded — invoice fully paid');
   else showToast('⚠️', 'Short payment recorded — $' + (h.total - amount).toFixed(2) + ' still outstanding');
@@ -2333,9 +2311,8 @@ function hideDemoBanner() {
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  const map = { 'page-invoice': 0, 'page-submissions': 1, 'page-clients': 2, 'page-history': 3 };
+  const map = { 'page-invoice': 0, 'page-clients': 1, 'page-history': 2 };
   document.querySelectorAll('.hdr-tab').forEach((t, i) => t.classList.toggle('active', i === map[id]));
-  if (id === 'page-submissions') renderSubmissions();
 }
 function showPanel(id) { ['panel-connect','panel-assignments','panel-invoice'].forEach(p => { const el = document.getElementById(p); if (el) el.style.display = p === id ? 'block' : 'none'; }); }
 function setStep(n) { [1,2,3].forEach(i => { const s = document.getElementById('stp'+i); const sn = document.getElementById('sn'+i); s.classList.remove('active','done'); if (i < n) { s.classList.add('done'); sn.textContent = '✓'; } else if (i === n) { s.classList.add('active'); sn.textContent = i; } else sn.textContent = i; }); }
