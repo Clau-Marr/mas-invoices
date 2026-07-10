@@ -1340,86 +1340,6 @@ function removeA(id) {
   showToast('🗑', 'Assignment deleted');
 }
 
-// ── SUBMISSIONS TRACKER ───────────────────────────────────
-function renderSubmissions() {
-  const filterVal = document.getElementById('sub-filter').value;
-  const alertsEl = document.getElementById('sub-alerts');
-  const container = document.getElementById('sub-groups-container');
-
-  // Alerts
-  const unsubmitted = trackedAssignments.filter(a => a.status === 'logged');
-  let alertHtml = '';
-  if (unsubmitted.length) alertHtml += `<div class="info info-teal" style="margin-bottom:8px;">📋 <strong>${unsubmitted.length} assignment${unsubmitted.length>1?'s':''}</strong> logged and ready to invoice.</div>`;
-  alertsEl.innerHTML = alertHtml;
-
-  // Filter
-  let filtered = filterVal === 'all' ? trackedAssignments : trackedAssignments.filter(a => {
-    if (filterVal === 'logged') return a.status === 'logged';
-    if (filterVal === 'submitted') return a.status === 'invoice_submitted';
-    if (filterVal === 'paid') return a.status === 'paid';
-    return true;
-  });
-
-  if (!filtered.length) {
-    container.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><h3>Nothing here</h3><p>Assignments you log will appear here for tracking.</p></div>';
-    return;
-  }
-
-  // Group by client then sort by date
-  const groups = {};
-  filtered.forEach(a => {
-    if (!groups[a.clientId]) groups[a.clientId] = { clientName: a.clientName, billingFreq: a.billingFreq, portalUrl: a.portalUrl, items: [] };
-    groups[a.clientId].items.push(a);
-  });
-
-  let html = '';
-  Object.values(groups).forEach(g => {
-    g.items.sort((a, b) => a.date.localeCompare(b.date));
-    const freqBadge = g.billingFreq === 'weekly' ? '<span class="badge badge-weekly">Weekly</span>' :
-                      g.billingFreq === 'monthly' ? '<span class="badge badge-monthly">Monthly</span>' : '';
-    const total = g.items.reduce((s, a) => s + a.total, 0);
-
-    html += `<div class="sub-group">
-      <div class="sub-group-hdr">
-        <div class="sub-group-title">${g.clientName} ${freqBadge} ${portalBadge}</div>
-        <div class="sub-group-meta">${g.items.length} assignment${g.items.length>1?'s':''} · $${total.toFixed(2)}</div>
-      </div>`;
-
-    // Header row
-    html += `<div style="display:grid;grid-template-columns:90px 1fr 80px 90px 120px 36px;gap:8px;padding:6px 14px;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);">
-      <span>Date</span><span>Assignment</span><span>Time</span><span>Total</span><span>Status</span><span></span>
-    </div>`;
-
-    g.items.forEach(a => {
-      const st = getStatusLabel(a.status);
-      const linkBtn = a.submissionLink
-        ? `<a href="${a.submissionLink}" target="_blank" class="btn btn-purple btn-xs" title="Open submission link">🔗</a>`
-        : '';
-      html += `<div class="sub-row">
-        <div style="font-size:12px;font-weight:600;">${fmtDateShort(a.date)}</div>
-        <div><div style="font-weight:500;font-size:12px;">${a.type}</div><div style="font-size:11px;color:var(--ink3);">${a.patientName}${a.po ? ' · PO:'+a.po : ''}</div></div>
-        <div style="font-size:12px;color:var(--ink3);">${fmtTime(a.start)}–${fmtTime(a.end)}</div>
-        <div style="font-size:12px;font-weight:600;color:var(--green);">$${a.total.toFixed(2)}</div>
-        <div><span class="status-badge ${st.cls}">${st.icon} ${st.label}</span></div>
-        <div style="display:flex;gap:3px;">${linkBtn}<button class="btn btn-ghost btn-xs" onclick="openStatusModal('${a.id}')" title="Update status">✎</button></div>
-      </div>`;
-    });
-
-    // Batch generate button for weekly/monthly
-    if (g.billingFreq !== 'single') {
-      const unsubCount = g.items.filter(a => a.status === 'logged').length;
-      if (unsubCount > 0) {
-        html += `<div style="display:flex;justify-content:flex-end;margin-top:8px;">
-          <button class="btn btn-outline btn-sm" onclick="openBatchModalForClient('${g.items[0].clientId}')">📋 Generate ${g.billingFreq} invoice (${unsubCount} pending)</button>
-        </div>`;
-      }
-    }
-    html += `</div>`;
-  });
-
-  container.innerHTML = html;
-}
-
 // ── BATCH INVOICE ─────────────────────────────────────────
 function openBatchModal() {
   const sel = document.getElementById('batch-client');
@@ -1951,7 +1871,7 @@ function markSent(skipReset) {
     });
   });
   assignments = assignments.filter(a => !sel.find(s => s.id === a.id));
-  renderAssignments(); renderHistory(); renderSubmissions();
+  renderAssignments(); renderHistory();
   saveData();
   if (!skipReset) {
     showPanel('panel-connect'); setStep(1);
@@ -2070,7 +1990,7 @@ function restoreBackup(event) {
     hideDemoBanner();
 
     saveData();
-    renderClients(); updateClientDropdowns(); renderHistory(); renderSubmissions();
+    renderClients(); updateClientDropdowns(); renderHistory();
     closeModal('settings-modal');
     showToast('✅', 'Backup restored — ' + clients.length + ' clients loaded');
     event.target.value = '';
