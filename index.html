@@ -580,7 +580,7 @@ textarea{resize:vertical;min-height:70px;}
   <div class="form-grid" style="margin-bottom:6px;">
     <div class="fg"><label>Your name / business name</label><input type="text" id="set-name" placeholder="Claudia Marroquin"></div>
     <div class="fg"><label>Mailing address line 1</label><input type="text" id="set-addr1" placeholder="123 Main St"></div>
-    <div class="fg"><label>City, State, ZIP</label><input type="text" id="set-addr2" placeholder="Morgan Hill, CA 95037"></div>
+    <div class="fg"><label>City, State, ZIP</label><input type="text" id="set-addr2" placeholder="Santa Clara, CA 95050"></div>
   </div>
   <div class="modal-actions" style="margin-top:18px;">
     <button class="btn btn-ghost" onclick="closeModal('settings-modal')">Cancel</button>
@@ -622,7 +622,7 @@ let accessToken = null;
 let tokenClient = null;
 let currentStatusAssignId = null;
 let driveBackupFileId = null; // Google Drive file ID for auto-backup
-let businessInfo = { name: 'Claudia Marroquin', addr1: '', addr2: 'Morgan Hill, CA' };
+let businessInfo = { name: 'Claudia Marroquin', addr1: '', addr2: 'Santa Clara, CA' };
 let isDemoMode = false;
 let realClientsBackup = null;
 let silentAuthInProgress = false;
@@ -915,6 +915,20 @@ function parseEvent(ev) {
     if (closest.score > 0.3) suggestion = closest.name;
   }
 
+  // ── Check whether this exact assignment has already been logged/invoiced/paid.
+  // Matched on client + date + start/end time + patient name, since that's the
+  // combination that uniquely identifies one calendar event across re-fetches.
+  let alreadyTracked = null;
+  if (client) {
+    alreadyTracked = trackedAssignments.find(t =>
+      t.clientId === client.id &&
+      t.date === date &&
+      t.start === startTime &&
+      t.end === endTime &&
+      (t.patientName || '').toLowerCase().trim() === patientName.toLowerCase().trim()
+    );
+  }
+
   return {
     id: ev.id || uid(), agencyName, assignType, patientName, po, date,
     startTime, endTime, location, miles,
@@ -923,7 +937,8 @@ function parseEvent(ev) {
     clientEmail: client?.email || '',
     rateInfo, billing,
     matched: !!client,
-    suggestion
+    suggestion,
+    alreadyStatus: alreadyTracked ? alreadyTracked.status : null
   };
 }
 
@@ -959,10 +974,21 @@ function renderImportedEvents() {
       : 'No start/end time — make sure the event has a specific time, not all-day.';
     const client = ev.clientId ? clients.find(c => c.id === ev.clientId) : null;
     const amt = ev.billing && ev.rateInfo ? '$' + (ev.billing.billableHours * ev.rateInfo.rate + ev.miles * (client?.mileageRate || 0)).toFixed(2) : '—';
-    return `<div class="import-event ${hasError ? 'error' : 'checked'}" id="iev-${ev.id}">
-      <input type="checkbox" id="ievchk-${ev.id}" ${hasError ? 'disabled' : 'checked'} style="width:15px;height:15px;accent-color:var(--teal);" onchange="this.closest('.import-event').classList.toggle('checked',this.checked)">
+
+    // Already submitted or paid — cross it off so it's obvious this one's been handled.
+    // Checkbox defaults unchecked (not disabled) so it can still be re-added on purpose
+    // if you ever need to correct/resend something.
+    const alreadyDone = ev.alreadyStatus === 'invoice_submitted' || ev.alreadyStatus === 'paid';
+    const doneBadge = ev.alreadyStatus === 'paid'
+      ? '<span class="badge badge-paid" style="margin-left:6px;">✅ Already paid</span>'
+      : ev.alreadyStatus === 'invoice_submitted'
+      ? '<span class="badge badge-teal" style="margin-left:6px;">📤 Already submitted</span>'
+      : '';
+
+    return `<div class="import-event ${hasError ? 'error' : alreadyDone ? '' : 'checked'}" id="iev-${ev.id}" style="${alreadyDone ? 'opacity:.55;' : ''}">
+      <input type="checkbox" id="ievchk-${ev.id}" ${hasError ? 'disabled' : ''} ${!hasError && !alreadyDone ? 'checked' : ''} style="width:15px;height:15px;accent-color:var(--teal);" onchange="this.closest('.import-event').classList.toggle('checked',this.checked)">
       <div>
-        <div style="font-weight:500">${ev.clientName} — ${ev.assignType}</div>
+        <div style="font-weight:500;${alreadyDone ? 'text-decoration:line-through;' : ''}">${ev.clientName} — ${ev.assignType}${doneBadge}</div>
         <div style="font-size:12px;color:var(--ink3);margin-top:2px;">${fmtDateShort(ev.date)} · ${ev.startTime ? fmtTime(ev.startTime) : '?'}–${ev.endTime ? fmtTime(ev.endTime) : '?'} · ${ev.patientName}${ev.po ? ' · PO: '+ev.po : ''} · ${ev.location||'—'}${ev.miles > 0 ? ' · '+ev.miles+' mi' : ''}${hasError ? '<br><span style="color:var(--red);font-weight:500">⚠ '+errMsg+'</span>' : ''}</div>
       </div>
       <div style="font-weight:600;color:var(--teal);white-space:nowrap;">${amt}</div>
@@ -980,7 +1006,7 @@ function filterEvents() {
   });
 }
 
-function selAllEv() { importedEvents.forEach(ev => { const c = document.getElementById('ievchk-'+ev.id); if (c && !c.disabled) { c.checked = true; document.getElementById('iev-'+ev.id).classList.add('checked'); } }); }
+function selAllEv() { importedEvents.forEach(ev => { const alreadyDone = ev.alreadyStatus === 'invoice_submitted' || ev.alreadyStatus === 'paid'; const c = document.getElementById('ievchk-'+ev.id); if (c && !c.disabled && !alreadyDone) { c.checked = true; document.getElementById('iev-'+ev.id).classList.add('checked'); } }); }
 function selNoneEv() { importedEvents.forEach(ev => { const c = document.getElementById('ievchk-'+ev.id); if (c) { c.checked = false; document.getElementById('iev-'+ev.id).classList.remove('checked'); } }); }
 
 function importSelected() {
