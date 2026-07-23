@@ -274,6 +274,7 @@ textarea{resize:vertical;min-height:70px;}
         <div><div class="card-title">Assignments</div><div class="card-sub">Billing calculated from your rate cards.</div></div>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-outline btn-sm" onclick="showPanel('panel-connect');setStep(1);">← Back</button>
+          <button class="btn btn-danger btn-sm" onclick="startOverFromAssignments()" title="Clear this draft and start over">🗑 Start over</button>
           <button class="btn btn-outline btn-sm" onclick="openAddModal()">+ Add manually</button>
         </div>
       </div>
@@ -625,6 +626,12 @@ let driveBackupFileId = null; // Google Drive file ID for auto-backup
 let businessInfo = { name: 'Claudia Marroquin', addr1: '', addr2: 'Santa Clara, CA' };
 let isDemoMode = false;
 let realClientsBackup = null;
+// Tracks IDs of assignments freshly created (via import or manual add) that belong
+// to the CURRENT in-progress invoice draft and haven't been sent yet. Used so
+// "Start over" can fully delete these (undoing the import/add), while leaving
+// alone any pre-existing logged assignments pulled in via batch invoice — those
+// should just get deselected from the draft, not deleted.
+let pendingNewAssignmentIds = [];
 let silentAuthInProgress = false;
 // Calendar event IDs the user has manually marked "already sent" — purely a visual
 // note for the import screen. Never affects trackedAssignments, invoices, history,
@@ -1121,6 +1128,7 @@ function importSelected() {
     assignments.push(a);
     // Also add to tracked
     trackedAssignments.push({...a});
+    pendingNewAssignmentIds.push(a.id);
   });
   saveData();
   renderAssignments();
@@ -1322,6 +1330,7 @@ function saveAssignment() {
   } else {
     assignments.push(a);
     trackedAssignments.push({...a});
+    pendingNewAssignmentIds.push(a.id);
   }
   saveData();
   closeModal('assign-modal');
@@ -1499,9 +1508,37 @@ function removeA(id) {
   if (!ok) return;
   assignments = assignments.filter(x => x.id !== id);
   trackedAssignments = trackedAssignments.filter(x => x.id !== id);
+  pendingNewAssignmentIds = pendingNewAssignmentIds.filter(x => x !== id);
   saveData();
   renderAssignments();
   showToast('🗑', 'Assignment deleted');
+}
+
+// Clears the in-progress invoice draft in one step. Anything that was freshly
+// imported or manually added for THIS draft gets fully deleted (undoing the
+// import), so it doesn't linger as an orphan "Logged" duplicate. Anything that
+// was already logged before this draft (e.g. pulled in via batch invoice) just
+// gets removed from the draft — it stays safely logged for later.
+function startOverFromAssignments() {
+  if (!assignments.length) { showPanel('panel-connect'); setStep(1); return; }
+  const freshIds = assignments.filter(a => pendingNewAssignmentIds.includes(a.id)).map(a => a.id);
+  const preexistingCount = assignments.length - freshIds.length;
+  const ok = confirm(
+    'Clear this invoice draft and start over?\n\n' +
+    assignments.length + ' assignment(s) will be removed from the draft.' +
+    (freshIds.length ? ' ' + freshIds.length + ' of these were just imported/added and will be deleted entirely.' : '') +
+    (preexistingCount ? ' ' + preexistingCount + ' were already logged before this draft — those will stay logged, just no longer part of this invoice.' : '') +
+    '\n\nContinue?'
+  );
+  if (!ok) return;
+  trackedAssignments = trackedAssignments.filter(t => !freshIds.includes(t.id));
+  pendingNewAssignmentIds = pendingNewAssignmentIds.filter(id => !freshIds.includes(id));
+  assignments = [];
+  saveData();
+  renderAssignments();
+  showPanel('panel-connect');
+  setStep(1);
+  showToast('🗑', 'Invoice draft cleared');
 }
 
 // ── BATCH INVOICE ─────────────────────────────────────────
@@ -2035,6 +2072,7 @@ function markSent(skipReset) {
     });
   });
   assignments = assignments.filter(a => !sel.find(s => s.id === a.id));
+  pendingNewAssignmentIds = pendingNewAssignmentIds.filter(id => !sel.find(s => s.id === id));
   renderAssignments(); renderHistory();
   saveData();
   if (!skipReset) {
