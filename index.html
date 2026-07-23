@@ -878,28 +878,28 @@ function parseEvent(ev) {
   if (milesMatch) miles = parseFloat(milesMatch[1]);
 
   // ── Fuzzy client matching: exact → contains → starts with → close enough
-  const agencyLower = agencyName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const agencyLower = normalizeForMatch(agencyName);
   let client = clients.find(c => c.name.toLowerCase() === agencyName.toLowerCase());
   if (!client) client = clients.find(c =>
     c.name.toLowerCase().includes(agencyName.toLowerCase()) ||
     agencyName.toLowerCase().includes(c.name.toLowerCase())
   );
   if (!client) client = clients.find(c => {
-    const cLower = c.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cLower = normalizeForMatch(c.name);
     return cLower.startsWith(agencyLower.slice(0,5)) || agencyLower.startsWith(cLower.slice(0,5));
   });
 
   // ── Fuzzy assignment type matching
   let rateInfo = null, billing = null;
   if (client) {
-    const typeLower = assignType.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const typeLower = normalizeForMatch(assignType);
     rateInfo = client.rates.find(r => r.type.toLowerCase() === assignType.toLowerCase());
     if (!rateInfo) rateInfo = client.rates.find(r =>
       r.type.toLowerCase().includes(assignType.toLowerCase()) ||
       assignType.toLowerCase().includes(r.type.toLowerCase())
     );
     if (!rateInfo) rateInfo = client.rates.find(r => {
-      const rLower = r.type.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const rLower = normalizeForMatch(r.type);
       return rLower.startsWith(typeLower.slice(0,4)) || typeLower.startsWith(rLower.slice(0,4));
     });
     if (rateInfo && startTime && endTime) billing = calcBillableHours(startTime, endTime, rateInfo.minHours);
@@ -916,17 +916,39 @@ function parseEvent(ev) {
   }
 
   // ── Check whether this exact assignment has already been logged/invoiced/paid.
-  // Matched on client + date + start/end time + patient name, since that's the
-  // combination that uniquely identifies one calendar event across re-fetches.
+  // Tries a few match strategies, strictest first, since the underlying data can
+  // drift a little between when it was invoiced and when the calendar is re-fetched
+  // (e.g. the assignment's time got corrected afterward, or the patient name has a
+  // tiny typo/spacing difference between the calendar title and what was saved).
   let alreadyTracked = null;
   if (client) {
-    alreadyTracked = trackedAssignments.find(t =>
-      t.clientId === client.id &&
+    // Match by clientId primarily, but also fall back to the client name saved on
+    // the tracked record — this way, if there are duplicate client entries (same
+    // agency, two different IDs) the match still works instead of silently failing.
+    const candidates = trackedAssignments.filter(t =>
       t.date === date &&
-      t.start === startTime &&
-      t.end === endTime &&
-      (t.patientName || '').toLowerCase().trim() === patientName.toLowerCase().trim()
+      (t.clientId === client.id || normalizeForMatch(t.clientName) === normalizeForMatch(client.name))
     );
+
+    // 1) Exact: client + date + start + end + patient name
+    alreadyTracked = candidates.find(t =>
+      t.start === startTime && t.end === endTime &&
+      normalizeForMatch(t.patientName) === normalizeForMatch(patientName)
+    );
+
+    // 2) Relaxed: client + date + patient name (time may have been edited since)
+    if (!alreadyTracked) {
+      alreadyTracked = candidates.find(t => normalizeForMatch(t.patientName) === normalizeForMatch(patientName));
+    }
+
+    // 3) Fuzzy: client + date + close-enough patient name (typos/spacing)
+    if (!alreadyTracked && candidates.length) {
+      const best = candidates.reduce((best, t) => {
+        const score = similarityScore(t.patientName || '', patientName || '');
+        return score > best.score ? { t, score } : best;
+      }, { t: null, score: 0 });
+      if (best.score > 0.75) alreadyTracked = best.t;
+    }
   }
 
   return {
@@ -942,10 +964,21 @@ function parseEvent(ev) {
   };
 }
 
+// Normalizes text for matching: folds accented letters to their plain equivalent
+// (María → Maria, Gómez → Gomez) instead of just stripping non a-z characters,
+// which used to silently delete accented letters and break otherwise-identical
+// matches. Used anywhere we compare names loosely (patient/agency/type matching).
+function normalizeForMatch(s) {
+  return (s || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accent marks, keep base letter
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
 // Simple similarity score for "did you mean?" suggestions (0 = no match, 1 = identical)
 function similarityScore(a, b) {
-  a = a.toLowerCase().replace(/[^a-z0-9]/g, '');
-  b = b.toLowerCase().replace(/[^a-z0-9]/g, '');
+  a = normalizeForMatch(a);
+  b = normalizeForMatch(b);
   if (a === b) return 1;
   if (b.includes(a) || a.includes(b)) return 0.8;
   let matches = 0;
