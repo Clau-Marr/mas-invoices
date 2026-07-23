@@ -626,6 +626,10 @@ let businessInfo = { name: 'Claudia Marroquin', addr1: '', addr2: 'Santa Clara, 
 let isDemoMode = false;
 let realClientsBackup = null;
 let silentAuthInProgress = false;
+// Calendar event IDs the user has manually marked "already sent" — purely a visual
+// note for the import screen. Never affects trackedAssignments, invoices, history,
+// or any totals, so it can't interfere with accounting.
+let manualSentOverrides = [];
 
 // ── STATUS CONSTANTS ──────────────────────────────────────
 // status: 'logged' | 'invoice_submitted' | 'paid'
@@ -640,6 +644,7 @@ function saveData() {
     localStorage.setItem('mas_counter', invCounter);
     localStorage.setItem('mas_tracked', JSON.stringify(trackedAssignments));
     localStorage.setItem('mas_business_info', JSON.stringify(businessInfo));
+    localStorage.setItem('mas_manual_overrides', JSON.stringify(manualSentOverrides));
   } catch(e) { console.log('Save error:', e); }
   // Auto-save to Google Drive in background if connected
   if (accessToken) saveToDrive();
@@ -654,7 +659,7 @@ function saveToDrive() {
       backupType: 'mas-invoices-backup',
       backupVersion: 1,
       createdAt: new Date().toISOString(),
-      clients, history, invCounter, trackedAssignments, businessInfo
+      clients, history, invCounter, trackedAssignments, businessInfo, manualSentOverrides
     };
     const content = JSON.stringify(backup, null, 2);
 
@@ -729,11 +734,13 @@ function loadData() {
     const t = localStorage.getItem('mas_tracked');
     const b = localStorage.getItem('mas_business_info');
     const d = localStorage.getItem('mas_drive_file_id');
+    const mo = localStorage.getItem('mas_manual_overrides');
     if (c) clients = JSON.parse(c);
     if (h) history = JSON.parse(h);
     if (n) invCounter = parseInt(n);
     if (t) trackedAssignments = JSON.parse(t);
     if (b) businessInfo = JSON.parse(b);
+    if (mo) manualSentOverrides = JSON.parse(mo);
     if (d) driveBackupFileId = d;
   } catch(e) { console.log('Load error:', e); }
 }
@@ -920,6 +927,15 @@ function parseEvent(ev) {
   // drift a little between when it was invoiced and when the calendar is re-fetched
   // (e.g. the assignment's time got corrected afterward, or the patient name has a
   // tiny typo/spacing difference between the calendar title and what was saved).
+  //
+  // If more than one tracked record matches (e.g. a leftover duplicate from an old
+  // import sitting at "Logged" alongside the one that actually got invoiced), always
+  // prefer whichever has the most-advanced status — Paid > Submitted > Logged —
+  // rather than just the first match found, so a real duplicate doesn't hide a
+  // legitimately-sent invoice.
+  const statusRank = (s) => s === 'paid' ? 2 : s === 'invoice_submitted' ? 1 : 0;
+  const bestByStatus = (list) => list.reduce((best, t) => !best || statusRank(t.status) > statusRank(best.status) ? t : best, null);
+
   let alreadyTracked = null;
   if (client) {
     // Match by clientId primarily, but also fall back to the client name saved on
@@ -931,23 +947,34 @@ function parseEvent(ev) {
     );
 
     // 1) Exact: client + date + start + end + patient name
-    alreadyTracked = candidates.find(t =>
+    alreadyTracked = bestByStatus(candidates.filter(t =>
       t.start === startTime && t.end === endTime &&
       normalizeForMatch(t.patientName) === normalizeForMatch(patientName)
-    );
+    ));
 
     // 2) Relaxed: client + date + patient name (time may have been edited since)
     if (!alreadyTracked) {
-      alreadyTracked = candidates.find(t => normalizeForMatch(t.patientName) === normalizeForMatch(patientName));
+      alreadyTracked = bestByStatus(candidates.filter(t => normalizeForMatch(t.patientName) === normalizeForMatch(patientName)));
     }
 
     // 3) Fuzzy: client + date + close-enough patient name (typos/spacing)
     if (!alreadyTracked && candidates.length) {
-      const best = candidates.reduce((best, t) => {
-        const score = similarityScore(t.patientName || '', patientName || '');
-        return score > best.score ? { t, score } : best;
-      }, { t: null, score: 0 });
-      if (best.score > 0.75) alreadyTracked = best.t;
+      const closeMatches = candidates.filter(t => similarityScore(t.patientName || '', patientName || '') > 0.75);
+      alreadyTracked = bestByStatus(closeMatches);
+    }
+  }
+
+  // 4) Last resort: ignore client entirely, match on date + patient name across
+  // ALL tracked assignments. Catches cases where the client record was renamed
+  // or re-added after the assignment was originally invoiced, so neither the ID
+  // nor the saved name lines up anymore — date + patient name is still a strong
+  // enough combination to be confident it's the same assignment.
+  if (!alreadyTracked && patientName) {
+    const sameDateAll = trackedAssignments.filter(t => t.date === date);
+    alreadyTracked = bestByStatus(sameDateAll.filter(t => normalizeForMatch(t.patientName) === normalizeForMatch(patientName)));
+    if (!alreadyTracked && sameDateAll.length) {
+      const closeMatches = sameDateAll.filter(t => similarityScore(t.patientName || '', patientName || '') > 0.85);
+      alreadyTracked = bestByStatus(closeMatches);
     }
   }
 
@@ -1008,14 +1035,25 @@ function renderImportedEvents() {
     const client = ev.clientId ? clients.find(c => c.id === ev.clientId) : null;
     const amt = ev.billing && ev.rateInfo ? '$' + (ev.billing.billableHours * ev.rateInfo.rate + ev.miles * (client?.mileageRate || 0)).toFixed(2) : '—';
 
-    // Already submitted or paid — cross it off so it's obvious this one's been handled.
-    // Checkbox defaults unchecked (not disabled) so it can still be re-added on purpose
-    // if you ever need to correct/resend something.
-    const alreadyDone = ev.alreadyStatus === 'invoice_submitted' || ev.alreadyStatus === 'paid';
+    // Already submitted or paid (auto-detected), OR manually marked by the user as
+    // a fallback for cases where auto-matching can't find it. Either way, checkbox
+    // defaults unchecked (not disabled) so it can still be re-added on purpose if
+    // you ever need to correct/resend something. Manual marks are purely a visual
+    // note — they never touch trackedAssignments, invoices, or totals.
+    const autoDone = ev.alreadyStatus === 'invoice_submitted' || ev.alreadyStatus === 'paid';
+    const manuallyDone = manualSentOverrides.includes(ev.id);
+    const alreadyDone = autoDone || manuallyDone;
     const doneBadge = ev.alreadyStatus === 'paid'
       ? '<span class="badge badge-paid" style="margin-left:6px;">✅ Already paid</span>'
       : ev.alreadyStatus === 'invoice_submitted'
       ? '<span class="badge badge-teal" style="margin-left:6px;">📤 Already submitted</span>'
+      : manuallyDone
+      ? '<span class="badge badge-general" style="margin-left:6px;">✓ Marked sent (manual)</span>'
+      : '';
+    const manualToggleBtn = !hasError && !autoDone
+      ? (manuallyDone
+          ? `<button class="btn btn-ghost btn-xs" onclick="toggleManualSent('${ev.id}')" title="Undo manual mark">↺ Undo</button>`
+          : `<button class="btn btn-ghost btn-xs" onclick="toggleManualSent('${ev.id}')" title="Mark as already sent — visual only, doesn't touch invoices">✓ Mark sent</button>`)
       : '';
 
     return `<div class="import-event ${hasError ? 'error' : alreadyDone ? '' : 'checked'}" id="iev-${ev.id}" style="${alreadyDone ? 'opacity:.55;' : ''}">
@@ -1024,9 +1062,26 @@ function renderImportedEvents() {
         <div style="font-weight:500;${alreadyDone ? 'text-decoration:line-through;' : ''}">${ev.clientName} — ${ev.assignType}${doneBadge}</div>
         <div style="font-size:12px;color:var(--ink3);margin-top:2px;">${fmtDateShort(ev.date)} · ${ev.startTime ? fmtTime(ev.startTime) : '?'}–${ev.endTime ? fmtTime(ev.endTime) : '?'} · ${ev.patientName}${ev.po ? ' · PO: '+ev.po : ''} · ${ev.location||'—'}${ev.miles > 0 ? ' · '+ev.miles+' mi' : ''}${hasError ? '<br><span style="color:var(--red);font-weight:500">⚠ '+errMsg+'</span>' : ''}</div>
       </div>
-      <div style="font-weight:600;color:var(--teal);white-space:nowrap;">${amt}</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+        <div style="font-weight:600;color:var(--teal);white-space:nowrap;">${amt}</div>
+        ${manualToggleBtn}
+      </div>
     </div>`;
   }).join('');
+}
+
+// Toggles a calendar event's manual "already sent" flag. This is purely a display
+// note for the import screen — it's keyed by the Google Calendar event ID (stable
+// across fetches) and never touches trackedAssignments, invoices, history, or any
+// dollar totals. Safe to use anytime auto-matching misses something.
+function toggleManualSent(evId) {
+  if (manualSentOverrides.includes(evId)) {
+    manualSentOverrides = manualSentOverrides.filter(id => id !== evId);
+  } else {
+    manualSentOverrides.push(evId);
+  }
+  saveData();
+  renderImportedEvents();
 }
 
 function filterEvents() {
@@ -1039,7 +1094,7 @@ function filterEvents() {
   });
 }
 
-function selAllEv() { importedEvents.forEach(ev => { const alreadyDone = ev.alreadyStatus === 'invoice_submitted' || ev.alreadyStatus === 'paid'; const c = document.getElementById('ievchk-'+ev.id); if (c && !c.disabled && !alreadyDone) { c.checked = true; document.getElementById('iev-'+ev.id).classList.add('checked'); } }); }
+function selAllEv() { importedEvents.forEach(ev => { const alreadyDone = ev.alreadyStatus === 'invoice_submitted' || ev.alreadyStatus === 'paid' || manualSentOverrides.includes(ev.id); const c = document.getElementById('ievchk-'+ev.id); if (c && !c.disabled && !alreadyDone) { c.checked = true; document.getElementById('iev-'+ev.id).classList.add('checked'); } }); }
 function selNoneEv() { importedEvents.forEach(ev => { const c = document.getElementById('ievchk-'+ev.id); if (c) { c.checked = false; document.getElementById('iev-'+ev.id).classList.remove('checked'); } }); }
 
 function importSelected() {
@@ -2044,7 +2099,7 @@ function downloadBackup() {
     backupType: 'mas-invoices-backup',
     backupVersion: 1,
     createdAt: new Date().toISOString(),
-    clients, history, invCounter, trackedAssignments, businessInfo
+    clients, history, invCounter, trackedAssignments, businessInfo, manualSentOverrides
   };
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -2095,6 +2150,7 @@ function restoreBackup(event) {
     invCounter = data.invCounter || 1;
     trackedAssignments = data.trackedAssignments || [];
     businessInfo = data.businessInfo || businessInfo;
+    manualSentOverrides = data.manualSentOverrides || [];
     isDemoMode = false;
     hideDemoBanner();
 
