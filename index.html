@@ -625,6 +625,7 @@ let driveBackupFileId = null; // Google Drive file ID for auto-backup
 let businessInfo = { name: 'Claudia Marroquin', addr1: '', addr2: 'Morgan Hill, CA' };
 let isDemoMode = false;
 let realClientsBackup = null;
+let silentAuthInProgress = false;
 
 // ── STATUS CONSTANTS ──────────────────────────────────────
 // status: 'logged' | 'invoice_submitted' | 'paid'
@@ -756,7 +757,17 @@ function initGoogleClient() {
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID, scope: SCOPES,
     callback: (resp) => {
-      if (resp.error) { showToast('⚠️', 'Sign-in failed: ' + resp.error); return; }
+      if (resp.error) {
+        if (silentAuthInProgress) {
+          // Silent auto-reconnect attempt failed quietly — no session, consent
+          // expired, or user needs to re-auth manually. Don't bother them.
+          silentAuthInProgress = false;
+          return;
+        }
+        showToast('⚠️', 'Sign-in failed: ' + resp.error);
+        return;
+      }
+      silentAuthInProgress = false;
       accessToken = resp.access_token;
       fetchUserInfo();
     }
@@ -773,15 +784,54 @@ function fetchUserInfo() {
       const today = todayStr();
       document.getElementById('range-start').value = addDays(today, -30);
       document.getElementById('range-end').value = today;
+      // Remember that this browser has connected before, so future page loads
+      // can attempt a silent (no-popup) reconnect to resume Drive auto-save.
+      localStorage.setItem('mas_google_connected', 'true');
       showToast('✅', 'Connected: ' + info.email);
+      // Now that we're connected, flush any pending local changes to Drive.
+      if (!isDemoMode) saveToDrive();
     });
 }
 
 function disconnectGoogle() {
   accessToken = null;
+  localStorage.removeItem('mas_google_connected');
   document.getElementById('gcal-box').style.display = 'block';
   document.getElementById('gcal-connected-state').style.display = 'none';
   document.getElementById('events-card').style.display = 'none';
+}
+
+// Attempt a silent, no-popup reconnect on page load so Drive auto-save can
+// resume without the user having to click "Connect Google Calendar" again.
+// Only runs if this browser has successfully connected before — otherwise
+// we'd be loading Google's script and pinging their auth endpoint for
+// nothing on every single page load for users who never use Google features.
+function attemptSilentReconnect() {
+  if (localStorage.getItem('mas_google_connected') !== 'true') return;
+  if (typeof google === 'undefined') {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.onload = () => { initGoogleClient(); doSilentAuth(); };
+    document.head.appendChild(s);
+  } else {
+    if (!tokenClient) initGoogleClient();
+    doSilentAuth();
+  }
+}
+
+function doSilentAuth() {
+  if (!tokenClient) return;
+  silentAuthInProgress = true;
+  try {
+    // prompt:'none' asks Google to reissue a token using the existing browser
+    // session + prior consent, with no popup/UI. If that's not possible
+    // (session expired, consent revoked, etc.) it just fails quietly — the
+    // callback in initGoogleClient() checks silentAuthInProgress and skips
+    // showing an error toast for this case.
+    tokenClient.requestAccessToken({ prompt: 'none' });
+  } catch (e) {
+    silentAuthInProgress = false;
+  }
 }
 
 function fetchEvents() {
@@ -2353,7 +2403,7 @@ window.addEventListener('load', () => {
     updateClientDropdowns();
     renderHistory();
     checkBackupReminder();
-    setTimeout(() => { if (typeof google !== 'undefined') initGoogleClient(); }, 1500);
+    setTimeout(() => { attemptSilentReconnect(); }, 800);
   });
 });
 
