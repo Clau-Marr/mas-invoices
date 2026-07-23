@@ -796,7 +796,7 @@ function fetchUserInfo() {
       document.getElementById('gcal-name').textContent = info.name || info.email;
       document.getElementById('gcal-email').textContent = info.email;
       const today = todayStr();
-      document.getElementById('range-start').value = addDays(today, -30);
+      document.getElementById('range-start').value = today.slice(0, 7) + '-01';
       document.getElementById('range-end').value = today;
       // Remember that this browser has connected before, so future page loads
       // can attempt a silent (no-popup) reconnect to resume Drive auto-save.
@@ -2556,9 +2556,28 @@ window.addEventListener('load', () => {
     updateClientDropdowns();
     renderHistory();
     checkBackupReminder();
-    setTimeout(() => { attemptSilentReconnect(); }, 800);
+    armSilentReconnectOnFirstInteraction();
   });
 });
+
+// Browsers flag/block popup-style requests (like Google's silent token reissue)
+// when they're triggered automatically with no real user action behind them —
+// that's what was causing the popup-blocker icon on every hard refresh. Instead,
+// wait for literally any first interaction with the page (click, tap, keypress)
+// and fire the silent reconnect attempt right then, so it rides along on a
+// genuine user gesture and the browser doesn't flag it. This still means Drive
+// sync resumes automatically within moments of opening the app — it just waits
+// for you to touch the page first, rather than firing blind on load.
+function armSilentReconnectOnFirstInteraction() {
+  let fired = false;
+  const trigger = () => {
+    if (fired) return;
+    fired = true;
+    attemptSilentReconnect();
+    ['click', 'keydown', 'touchstart'].forEach(evt => document.removeEventListener(evt, trigger));
+  };
+  ['click', 'keydown', 'touchstart'].forEach(evt => document.addEventListener(evt, trigger, { once: false }));
+}
 
 function checkSingleTab(onSafe) {
   const TAB_KEY = 'mas_active_tab';
