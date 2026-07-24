@@ -187,8 +187,6 @@ textarea{resize:vertical;min-height:70px;}
   body{background:white;}
 }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 
@@ -621,6 +619,35 @@ textarea{resize:vertical;min-height:70px;}
 // ── CONFIG ────────────────────────────────────────────────
 const CLIENT_ID = '566546508985-12fom6evof5isvjmea1nqlfm3pj82aun.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/drive.file';
+
+// ── LAZY-LOADED PDF LIBS ──────────────────────────────────
+// html2canvas + jsPDF are only needed when generating a PDF (email attachment,
+// reprint view). Loading them upfront in <head> would block every page load
+// with a few hundred KB most visits never use — so they're fetched on demand,
+// once, and cached.
+let pdfLibsPromise = null;
+function loadPdfLibs() {
+  if (pdfLibsPromise) return pdfLibsPromise;
+  pdfLibsPromise = Promise.all([
+    loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'),
+    loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+  ]).catch(err => {
+    pdfLibsPromise = null; // allow retry on next attempt if it failed (e.g. offline)
+    throw err;
+  });
+  return pdfLibsPromise;
+}
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Failed to load ' + src));
+    document.head.appendChild(s);
+  });
+}
 
 // ── STATE ─────────────────────────────────────────────────
 let clients = [];
@@ -2001,8 +2028,13 @@ MÁS Professional Services`;
   document.getElementById('email-view-pdf-btn').style.display = 'none';
   document.getElementById('email-modal').style.display = 'flex';
 
-  // Build the invoice HTML off-screen, then convert to PDF
-  generateInvoicePdfForEmail(h);
+  // Build the invoice HTML off-screen, then convert to PDF (libs loaded on first use)
+  loadPdfLibs().then(() => {
+    generateInvoicePdfForEmail(h);
+  }).catch(() => {
+    document.getElementById('email-attachment-name').textContent = 'Could not load PDF generator — check your connection';
+    showToast('⚠️', 'Failed to load PDF tools');
+  });
 }
 
 function generateInvoicePdfForEmail(h) {
