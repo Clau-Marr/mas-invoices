@@ -1070,6 +1070,12 @@ function parseEvent(ev) {
     }
   }
 
+  // Start === end (zero-duration) is treated as an intentional "No Show" signal
+  // rather than a data mistake — it's a recognized shorthand for "the appointment
+  // didn't happen." importSelected() uses this to auto-set the Visit Status flag,
+  // so the invoice line correctly shows "No Show" without a manual step.
+  const isNoShow = !!(startTime && endTime && startTime === endTime);
+
   return {
     id: ev.id || uid(), agencyName, assignType, patientName, po, date,
     startTime, endTime, location, miles,
@@ -1079,7 +1085,8 @@ function parseEvent(ev) {
     rateInfo, billing,
     matched: !!client,
     suggestion,
-    alreadyStatus: alreadyTracked ? alreadyTracked.status : null
+    alreadyStatus: alreadyTracked ? alreadyTracked.status : null,
+    isNoShow
   };
 }
 
@@ -1126,13 +1133,11 @@ function renderImportedEvents() {
       : 'No start/end time — make sure the event has a specific time, not all-day.';
     const client = ev.clientId ? clients.find(c => c.id === ev.clientId) : null;
     const amt = ev.billing && ev.rateInfo ? '$' + (ev.billing.billableHours * ev.rateInfo.rate + ev.miles * (client?.mileageRate || 0)).toFixed(2) : '—';
-    // Doesn't block billing (the minimum-hours rate still applies) but flags a
-    // likely calendar entry mistake — worth fixing at the source since it also
-    // disables auto "already sent" matching for this event (see parseEvent).
-    const zeroDuration = ev.startTime && ev.endTime && ev.startTime === ev.endTime;
-    const zeroDurationWarning = zeroDuration
-      ? '<br><span style="color:var(--gold);font-weight:500">⚠ Start and end time are identical — check this calendar event\'s time. Won\'t auto-detect as already sent; use "✓ Mark sent" if needed.</span>'
-      : '';
+    // Start === end (zero-duration) is intentionally left unflagged in the UI —
+    // it's still excluded from "already sent" auto-matching in parseEvent() (that
+    // same timestamp could repeat across genuinely different no-show visits for
+    // the same patient), but no note is shown here; the assignment row displays
+    // like any other.
 
     // Already submitted or paid (auto-detected), OR manually marked by the user as
     // a fallback for cases where auto-matching can't find it. Either way, checkbox
@@ -1159,7 +1164,7 @@ function renderImportedEvents() {
       <input type="checkbox" id="ievchk-${ev.id}" ${hasError ? 'disabled' : ''} ${!hasError && !alreadyDone ? 'checked' : ''} style="width:15px;height:15px;accent-color:var(--teal);" onchange="this.closest('.import-event').classList.toggle('checked',this.checked)">
       <div>
         <div style="font-weight:500;${alreadyDone ? 'text-decoration:line-through;' : ''}">${ev.clientName} — ${ev.assignType}${doneBadge}</div>
-        <div style="font-size:12px;color:var(--ink3);margin-top:2px;">${fmtDateShort(ev.date)} · ${ev.startTime ? fmtTime(ev.startTime) : '?'}–${ev.endTime ? fmtTime(ev.endTime) : '?'} · ${ev.patientName}${ev.po ? ' · PO: '+ev.po : ''} · ${ev.location||'—'}${ev.miles > 0 ? ' · '+ev.miles+' mi' : ''}${hasError ? '<br><span style="color:var(--red);font-weight:500">⚠ '+errMsg+'</span>' : zeroDurationWarning}</div>
+        <div style="font-size:12px;color:var(--ink3);margin-top:2px;">${fmtDateShort(ev.date)} · ${ev.startTime ? fmtTime(ev.startTime) : '?'}–${ev.endTime ? fmtTime(ev.endTime) : '?'} · ${ev.patientName}${ev.po ? ' · PO: '+ev.po : ''} · ${ev.location||'—'}${ev.miles > 0 ? ' · '+ev.miles+' mi' : ''}${hasError ? '<br><span style="color:var(--red);font-weight:500">⚠ '+errMsg+'</span>' : ''}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
         <div style="font-weight:600;color:var(--teal);white-space:nowrap;">${amt}</div>
