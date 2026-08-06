@@ -208,6 +208,13 @@ textarea{resize:vertical;min-height:70px;}
   #reprint-modal .modal > div:first-child{display:none!important;}
   /* Every OTHER modal must stay fully hidden during print, no matter what */
   .modal-bg:not(#reprint-modal){display:none!important;}
+  /* When printing from the Reprint Invoice popup, hide the entire underlying
+     app UI — whatever tab was open behind it (History, Clients, Outstanding,
+     etc.). Printing doesn't respect on-screen overlay stacking the way the
+     browser's on-screen rendering does — it just prints every block that's
+     currently visible — so without this, that tab's content prints right
+     alongside the invoice. */
+  body:has(#reprint-modal[style*="flex"]) .app{display:none!important;}
 }
 </style>
 </head>
