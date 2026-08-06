@@ -101,19 +101,19 @@ textarea{resize:vertical;min-height:70px;}
 .sum-val{font-family:'Fraunces',serif;font-size:22px;font-weight:300;color:var(--teal2);}
 .sum-val.w{color:white;}
 .inv-wrap{background:white;border:1px solid var(--canvas3);border-radius:var(--r);overflow:hidden;}
-.inv-hdr{background:var(--ink);padding:30px 40px;display:flex;justify-content:space-between;align-items:flex-start;}
-.inv-logo{font-family:'Fraunces',serif;font-size:28px;font-weight:300;color:var(--teal2);}
-.inv-logo small{display:block;font-family:'Inter',sans-serif;font-size:10px;font-weight:300;color:#555;letter-spacing:.12em;text-transform:uppercase;margin-top:4px;}
-.inv-meta{text-align:right;color:#888;font-size:12px;line-height:2;}
-.inv-meta strong{display:block;font-family:'Fraunces',serif;font-size:24px;font-weight:300;color:var(--teal2);margin-bottom:2px;}
-.inv-body{padding:32px 40px;}
-.inv-parties{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-bottom:28px;}
-.inv-plbl{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);margin-bottom:7px;}
-.inv-pname{font-weight:600;font-size:15px;margin-bottom:3px;}
-.inv-pdet{font-size:12px;color:var(--ink3);line-height:1.7;}
-.inv-tbl{width:100%;border-collapse:collapse;margin-bottom:24px;}
-.inv-tbl th{text-align:left;padding:9px 10px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);border-bottom:1.5px solid var(--canvas2);}
-.inv-tbl td{padding:12px 10px;border-bottom:1px solid var(--canvas);font-size:13px;vertical-align:top;}
+.inv-hdr{background:var(--ink);padding:18px 32px;display:flex;justify-content:space-between;align-items:flex-start;}
+.inv-logo{font-family:'Fraunces',serif;font-size:19px;font-weight:300;color:var(--teal2);}
+.inv-logo small{display:block;font-family:'Inter',sans-serif;font-size:9px;font-weight:300;color:#555;letter-spacing:.1em;text-transform:uppercase;margin-top:3px;}
+.inv-meta{text-align:right;color:#888;font-size:11px;line-height:1.75;}
+.inv-meta strong{display:block;font-family:'Fraunces',serif;font-size:17px;font-weight:300;color:var(--teal2);margin-bottom:1px;}
+.inv-body{padding:18px 32px 26px;}
+.inv-parties{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:14px;}
+.inv-plbl{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:3px;}
+.inv-pname{font-weight:600;font-size:13px;margin-bottom:1px;}
+.inv-pdet{font-size:11px;color:var(--ink3);line-height:1.45;}
+.inv-tbl{width:100%;border-collapse:collapse;margin-bottom:16px;}
+.inv-tbl th{text-align:left;padding:5px 8px;font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);border-bottom:1.5px solid var(--canvas2);}
+.inv-tbl td{padding:6px 8px;border-bottom:1px solid var(--canvas);font-size:12px;vertical-align:top;}
 .inv-tbl tr:last-child td{border-bottom:none;}
 .inv-tbl .right{text-align:right;}
 .inv-totals{margin-left:auto;width:270px;}
@@ -182,8 +182,26 @@ textarea{resize:vertical;min-height:70px;}
 }
 @media print{
   .hdr,.steps,.action-bar,.sum-bar,.card-hdr .btn,.page-title,.page-sub{display:none!important;}
-  .inv-wrap{border:none;box-shadow:none;}
+  /* .inv-wrap has overflow:hidden on screen (to clip the header's background to
+     its rounded corners). That property breaks pagination when printing — most
+     browsers treat an overflow:hidden box as one un-splittable unit and end up
+     repeating the same visible slice on every printed page instead of flowing
+     content naturally across pages. Overriding it here fixes multi-page invoices
+     without changing anything about how it looks on screen. */
+  .inv-wrap{border:none;box-shadow:none;overflow:visible!important;}
+  .inv-tbl{page-break-inside:auto;}
+  .inv-tbl tr{page-break-inside:avoid;page-break-after:auto;}
   body{background:white;}
+
+  /* The Reprint Invoice popup wraps the invoice in .modal, which uses
+     max-height:90vh + overflow-y:auto so it scrolls neatly on screen. That same
+     constraint clips anything past ~90% of the window when printing — assignments
+     near the bottom just get cut off instead of flowing onto another page. Reset
+     it all for print, and un-fix the backdrop, since fixed-position elements print
+     unreliably across multiple pages. */
+  .modal-bg{position:static!important;background:none!important;padding:0!important;display:block!important;}
+  .modal{max-height:none!important;overflow:visible!important;box-shadow:none!important;padding:0!important;max-width:none!important;}
+  #reprint-modal .modal > div:first-child{display:none!important;}
 }
 </style>
 </head>
@@ -1875,7 +1893,7 @@ function renderInvoice() {
   }).join('');
   document.getElementById('invoice-preview').innerHTML = `
     <div class="inv-hdr">
-      <div><div class="inv-logo">MÁS Professional Services<small>Medical Interpretation Services</small></div><div style="margin-top:16px;font-size:12px;color:#888;line-height:1.9">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
+      <div><div class="inv-logo">MÁS Professional Services<small>Medical Interpretation Services</small></div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
       <div class="inv-meta"><strong>Invoice</strong>#${iN}<br>Date: ${fmtDateLong(iD)}<br>Due: ${fmtDateLong(iDu)}<br>Terms: ${terms}<br><span style="display:inline-block;margin-top:8px;padding:4px 12px;background:var(--teal);color:white;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em">PENDING</span></div>
     </div>
     <div class="inv-body">
@@ -1952,7 +1970,7 @@ function reprintInvoice(historyId) {
 
   document.getElementById('reprint-invoice-preview').innerHTML = `
     <div class="inv-hdr">
-      <div><div class="inv-logo">MÁS Professional Services<small>Medical Interpretation Services</small></div><div style="margin-top:16px;font-size:12px;color:#888;line-height:1.9">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
+      <div><div class="inv-logo">MÁS Professional Services<small>Medical Interpretation Services</small></div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
       <div class="inv-meta"><strong>Invoice</strong>#${h.num}<br>Date: ${fmtDateLong(h.date)}<br>Due: ${h.dueDate ? fmtDateLong(h.dueDate) : '—'}<br>Terms: ${h.terms || 'Net 30'}<br>${statusBadgeHtml}</div>
     </div>
     <div class="inv-body">
@@ -2058,7 +2076,7 @@ function generateInvoicePdfForEmail(h) {
   container.style.cssText = 'position:fixed;left:-9999px;top:0;width:760px;background:white;';
   container.innerHTML = `<div class="inv-wrap">
     <div class="inv-hdr">
-      <div><div class="inv-logo">MÁS Professional Services<small>Medical Interpretation Services</small></div><div style="margin-top:16px;font-size:12px;color:#888;line-height:1.9">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
+      <div><div class="inv-logo">MÁS Professional Services<small>Medical Interpretation Services</small></div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
       <div class="inv-meta"><strong>Invoice</strong>#${h.num}<br>Date: ${fmtDateLong(h.date)}<br>Due: ${h.dueDate ? fmtDateLong(h.dueDate) : '—'}<br>Terms: ${h.terms || 'Net 30'}</div>
     </div>
     <div class="inv-body">
@@ -2603,6 +2621,43 @@ function findOrphanedSubmittedAssignments() {
   );
 }
 
+// Permanently removes an orphaned assignment (one confirmed to be a duplicate or
+// mistake, not tied to any real invoice). Since it's already excluded from every
+// total shown to the user, this is purely cleanup — safe to hard-delete.
+function deleteOrphanedAssignment(id) {
+  const a = trackedAssignments.find(x => x.id === id);
+  if (!a) return;
+  const ok = confirm(
+    'Permanently delete this assignment?\n\n' +
+    a.clientName + ' — ' + a.type + '\n' +
+    a.patientName + ' · ' + fmtDateShort(a.date) + ' · $' + a.total.toFixed(2) + '\n\n' +
+    'It isn\'t tied to any invoice, so this is safe cleanup. This cannot be undone.'
+  );
+  if (!ok) return;
+  trackedAssignments = trackedAssignments.filter(x => x.id !== id);
+  assignments = assignments.filter(x => x.id !== id);
+  saveData();
+  renderOutstanding();
+  showToast('🗑', 'Deleted');
+}
+
+function deleteAllOrphanedAssignments() {
+  const orphans = findOrphanedSubmittedAssignments();
+  if (!orphans.length) return;
+  const total = orphans.reduce((s, a) => s + a.total, 0);
+  const ok = confirm(
+    'Permanently delete all ' + orphans.length + ' orphaned assignments (totaling $' + total.toFixed(2) + ')?\n\n' +
+    'None of these are tied to a real invoice, so this is safe cleanup. This cannot be undone.'
+  );
+  if (!ok) return;
+  const ids = new Set(orphans.map(a => a.id));
+  trackedAssignments = trackedAssignments.filter(x => !ids.has(x.id));
+  assignments = assignments.filter(x => !ids.has(x.id));
+  saveData();
+  renderOutstanding();
+  showToast('🗑', orphans.length + ' assignments deleted');
+}
+
 function renderOutstanding() {
   const el = document.getElementById('outstanding-list');
   const summary = document.getElementById('outstanding-summary');
@@ -2634,13 +2689,17 @@ function renderOutstanding() {
   if (orphans.length) {
     const orphanTotal = orphans.reduce((s, a) => s + a.total, 0);
     orphanBanner = `<div class="info info-gold" style="margin-bottom:20px;">
-      ⚠️ <strong>${orphans.length} assignment${orphans.length === 1 ? '' : 's'} totaling $${orphanTotal.toFixed(2)}</strong> ${orphans.length === 1 ? 'is' : 'are'} marked "Submitted" but ${orphans.length === 1 ? "isn't" : "aren't"} tied to any invoice record in History — not counted in the totals below.
-      This could be true duplicates, or real billed work only tracked via the per-assignment status button rather than a real invoice. Worth reviewing individually.
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+        <div>⚠️ <strong>${orphans.length} assignment${orphans.length === 1 ? '' : 's'} totaling $${orphanTotal.toFixed(2)}</strong> ${orphans.length === 1 ? 'is' : 'are'} marked "Submitted" but ${orphans.length === 1 ? "isn't" : "aren't"} tied to any invoice record in History — not counted in the totals below.
+        This could be true duplicates, or real billed work only tracked via the per-assignment status button rather than a real invoice. Worth reviewing individually.</div>
+        ${orphans.length > 1 ? `<button class="btn btn-danger btn-sm" style="flex-shrink:0;" onclick="deleteAllOrphanedAssignments()">🗑 Delete all ${orphans.length}</button>` : ''}
+      </div>
       <div style="margin-top:10px;">${orphans.map(a => `<div style="padding:8px 0;border-top:1px solid rgba(0,0,0,.08);display:flex;justify-content:space-between;gap:10px;align-items:center;">
         <div style="font-size:12px;"><strong>${fmtDateShort(a.date)}</strong> · ${a.clientName} — ${a.type} · ${a.patientName}</div>
         <div style="display:flex;gap:8px;align-items:center;">
           <div style="font-weight:600;">$${a.total.toFixed(2)}</div>
           <button class="btn btn-outline btn-xs" onclick="advanceStatus('${a.id}','logged')">↩️ Revert to Logged</button>
+          <button class="btn btn-danger btn-xs" onclick="deleteOrphanedAssignment('${a.id}')">🗑 Delete</button>
         </div>
       </div>`).join('')}</div>
     </div>`;
