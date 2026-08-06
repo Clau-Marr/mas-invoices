@@ -198,10 +198,16 @@ textarea{resize:vertical;min-height:70px;}
      constraint clips anything past ~90% of the window when printing — assignments
      near the bottom just get cut off instead of flowing onto another page. Reset
      it all for print, and un-fix the backdrop, since fixed-position elements print
-     unreliably across multiple pages. */
-  .modal-bg{position:static!important;background:none!important;padding:0!important;display:block!important;}
-  .modal{max-height:none!important;overflow:visible!important;box-shadow:none!important;padding:0!important;max-width:none!important;}
+     unreliably across multiple pages. This is scoped specifically to
+     #reprint-modal — using the general .modal-bg/.modal classes here was
+     force-displaying EVERY modal in the app during print (Client, Batch
+     Invoice, Email, Payment, Settings, etc. all share those classes), which is
+     why unrelated content was showing up in the printout. */
+  #reprint-modal{position:static!important;background:none!important;padding:0!important;display:block!important;}
+  #reprint-modal .modal{max-height:none!important;overflow:visible!important;box-shadow:none!important;padding:0!important;max-width:none!important;}
   #reprint-modal .modal > div:first-child{display:none!important;}
+  /* Every OTHER modal must stay fully hidden during print, no matter what */
+  .modal-bg:not(#reprint-modal){display:none!important;}
 }
 </style>
 </head>
