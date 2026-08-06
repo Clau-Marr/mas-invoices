@@ -1010,8 +1010,19 @@ function parseEvent(ev) {
   // ── Check whether this exact assignment has already been logged/invoiced/paid.
   // Tries a few match strategies, strictest first, since the underlying data can
   // drift a little between when it was invoiced and when the calendar is re-fetched
-  // (e.g. the assignment's time got corrected afterward, or the patient name has a
-  // tiny typo/spacing difference between the calendar title and what was saved).
+  // (e.g. the patient name has a tiny typo/spacing difference between the calendar
+  // title and what was saved, or the client record got renamed).
+  //
+  // EVERY tier below requires an exact start+end time match on top of the date.
+  // Earlier versions relaxed the time requirement to catch cases where an
+  // assignment's time got corrected after invoicing — but that turned out to be
+  // unsafe: a patient can have two separate visits with the same client on the
+  // same day (a follow-up, a double booking), and matching on date+patient name
+  // alone risks silently borrowing a completely different visit's "Submitted"
+  // status. Time slots don't repeat, so they're the one thing safe to anchor on.
+  // The manual "✓ Mark sent" override exists as a fallback for the rare case
+  // where a genuinely-already-sent assignment's time really was edited and this
+  // stricter matching misses it.
   //
   // If more than one tracked record matches (e.g. a leftover duplicate from an old
   // import sitting at "Logged" alongside the one that actually got invoiced), always
@@ -1022,44 +1033,40 @@ function parseEvent(ev) {
   const bestByStatus = (list) => list.reduce((best, t) => !best || statusRank(t.status) > statusRank(best.status) ? t : best, null);
 
   let alreadyTracked = null;
-  if (client) {
-    // Match by clientId primarily, but also fall back to the client name saved on
-    // the tracked record — this way, if there are duplicate client entries (same
-    // agency, two different IDs) the match still works instead of silently failing.
-    const candidates = trackedAssignments.filter(t =>
-      t.date === date &&
-      (t.clientId === client.id || normalizeForMatch(t.clientName) === normalizeForMatch(client.name))
-    );
+  // Skip auto-matching entirely when start === end — a zero-duration event,
+  // almost always caused by a calendar entry that never got a real end time set
+  // (Google Calendar sometimes defaults end=start on quick-added events). That
+  // timestamp isn't a reliable fingerprint: if this habit repeats for the same
+  // patient/client, multiple genuinely different real visits could all share the
+  // identical broken "time slot" and get conflated. Safer to require a manual
+  // "✓ Mark sent" confirmation for these than risk a false match.
+  if (startTime && endTime && startTime !== endTime) {
+    const sameSlot = trackedAssignments.filter(t => t.date === date && t.start === startTime && t.end === endTime);
 
-    // 1) Exact: client + date + start + end + patient name
-    alreadyTracked = bestByStatus(candidates.filter(t =>
-      t.start === startTime && t.end === endTime &&
-      normalizeForMatch(t.patientName) === normalizeForMatch(patientName)
-    ));
+    if (client) {
+      const clientSlot = sameSlot.filter(t =>
+        t.clientId === client.id || normalizeForMatch(t.clientName) === normalizeForMatch(client.name)
+      );
 
-    // 2) Relaxed: client + date + patient name (time may have been edited since)
-    if (!alreadyTracked) {
-      alreadyTracked = bestByStatus(candidates.filter(t => normalizeForMatch(t.patientName) === normalizeForMatch(patientName)));
+      // 1) Exact: client + date + time + patient name
+      alreadyTracked = bestByStatus(clientSlot.filter(t => normalizeForMatch(t.patientName) === normalizeForMatch(patientName)));
+
+      // 2) Fuzzy: client + date + time + close-enough patient name (typos/spacing)
+      if (!alreadyTracked && clientSlot.length) {
+        const closeMatches = clientSlot.filter(t => similarityScore(t.patientName || '', patientName || '') > 0.75);
+        alreadyTracked = bestByStatus(closeMatches);
+      }
     }
 
-    // 3) Fuzzy: client + date + close-enough patient name (typos/spacing)
-    if (!alreadyTracked && candidates.length) {
-      const closeMatches = candidates.filter(t => similarityScore(t.patientName || '', patientName || '') > 0.75);
-      alreadyTracked = bestByStatus(closeMatches);
-    }
-  }
-
-  // 4) Last resort: ignore client entirely, match on date + patient name across
-  // ALL tracked assignments. Catches cases where the client record was renamed
-  // or re-added after the assignment was originally invoiced, so neither the ID
-  // nor the saved name lines up anymore — date + patient name is still a strong
-  // enough combination to be confident it's the same assignment.
-  if (!alreadyTracked && patientName) {
-    const sameDateAll = trackedAssignments.filter(t => t.date === date);
-    alreadyTracked = bestByStatus(sameDateAll.filter(t => normalizeForMatch(t.patientName) === normalizeForMatch(patientName)));
-    if (!alreadyTracked && sameDateAll.length) {
-      const closeMatches = sameDateAll.filter(t => similarityScore(t.patientName || '', patientName || '') > 0.85);
-      alreadyTracked = bestByStatus(closeMatches);
+    // 3) Last resort: ignore client entirely, but date+time+patient name must
+    // still match exactly. Catches client renames without risking a
+    // same-day-different-time mixup, since the time slot is still required.
+    if (!alreadyTracked && patientName) {
+      alreadyTracked = bestByStatus(sameSlot.filter(t => normalizeForMatch(t.patientName) === normalizeForMatch(patientName)));
+      if (!alreadyTracked && sameSlot.length) {
+        const closeMatches = sameSlot.filter(t => similarityScore(t.patientName || '', patientName || '') > 0.85);
+        alreadyTracked = bestByStatus(closeMatches);
+      }
     }
   }
 
@@ -1119,6 +1126,13 @@ function renderImportedEvents() {
       : 'No start/end time — make sure the event has a specific time, not all-day.';
     const client = ev.clientId ? clients.find(c => c.id === ev.clientId) : null;
     const amt = ev.billing && ev.rateInfo ? '$' + (ev.billing.billableHours * ev.rateInfo.rate + ev.miles * (client?.mileageRate || 0)).toFixed(2) : '—';
+    // Doesn't block billing (the minimum-hours rate still applies) but flags a
+    // likely calendar entry mistake — worth fixing at the source since it also
+    // disables auto "already sent" matching for this event (see parseEvent).
+    const zeroDuration = ev.startTime && ev.endTime && ev.startTime === ev.endTime;
+    const zeroDurationWarning = zeroDuration
+      ? '<br><span style="color:var(--gold);font-weight:500">⚠ Start and end time are identical — check this calendar event\'s time. Won\'t auto-detect as already sent; use "✓ Mark sent" if needed.</span>'
+      : '';
 
     // Already submitted or paid (auto-detected), OR manually marked by the user as
     // a fallback for cases where auto-matching can't find it. Either way, checkbox
@@ -1145,7 +1159,7 @@ function renderImportedEvents() {
       <input type="checkbox" id="ievchk-${ev.id}" ${hasError ? 'disabled' : ''} ${!hasError && !alreadyDone ? 'checked' : ''} style="width:15px;height:15px;accent-color:var(--teal);" onchange="this.closest('.import-event').classList.toggle('checked',this.checked)">
       <div>
         <div style="font-weight:500;${alreadyDone ? 'text-decoration:line-through;' : ''}">${ev.clientName} — ${ev.assignType}${doneBadge}</div>
-        <div style="font-size:12px;color:var(--ink3);margin-top:2px;">${fmtDateShort(ev.date)} · ${ev.startTime ? fmtTime(ev.startTime) : '?'}–${ev.endTime ? fmtTime(ev.endTime) : '?'} · ${ev.patientName}${ev.po ? ' · PO: '+ev.po : ''} · ${ev.location||'—'}${ev.miles > 0 ? ' · '+ev.miles+' mi' : ''}${hasError ? '<br><span style="color:var(--red);font-weight:500">⚠ '+errMsg+'</span>' : ''}</div>
+        <div style="font-size:12px;color:var(--ink3);margin-top:2px;">${fmtDateShort(ev.date)} · ${ev.startTime ? fmtTime(ev.startTime) : '?'}–${ev.endTime ? fmtTime(ev.endTime) : '?'} · ${ev.patientName}${ev.po ? ' · PO: '+ev.po : ''} · ${ev.location||'—'}${ev.miles > 0 ? ' · '+ev.miles+' mi' : ''}${hasError ? '<br><span style="color:var(--red);font-weight:500">⚠ '+errMsg+'</span>' : zeroDurationWarning}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
         <div style="font-weight:600;color:var(--teal);white-space:nowrap;">${amt}</div>
