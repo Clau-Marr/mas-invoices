@@ -1,5 +1,4 @@
 
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2596,7 +2595,26 @@ function renderOutstanding() {
   const summary = document.getElementById('outstanding-summary');
   if (!el) return;
 
-  const unpaid = trackedAssignments.filter(a => a.status === 'invoice_submitted' && !isPaid(a));
+  // IMPORTANT: this must match History's definition of "outstanding" exactly —
+  // only assignments that are actually part of a real, sent invoice (i.e. they
+  // show up in some history[].snapshot). Previously this filtered ALL
+  // trackedAssignments by status === 'invoice_submitted' directly, which also
+  // swept in any orphaned/duplicate assignment records that got marked
+  // "Submitted" without ever really being wrapped into an invoice (the same
+  // kind of leftover duplicate we found with the Procare/Maldonado entry).
+  // Those orphans inflated this page's total above History's, even though they
+  // were never real, billed invoices. Deriving from invoiceAssignments() instead
+  // keeps both pages showing the exact same, accurate outstanding balance.
+  const seenIds = new Set();
+  const unpaid = [];
+  history.forEach(h => {
+    invoiceAssignments(h).forEach(a => {
+      if (!isPaid(a) && !seenIds.has(a.id)) {
+        seenIds.add(a.id);
+        unpaid.push(a);
+      }
+    });
+  });
 
   if (!unpaid.length) {
     el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><h3>Nothing outstanding</h3><p>All invoiced assignments are paid.</p></div>';
