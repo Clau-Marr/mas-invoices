@@ -2590,6 +2590,19 @@ function toggleInvoiceExpand(id) {
 }
 
 // ── OUTSTANDING DASHBOARD ──────────────────────────────────
+function findOrphanedSubmittedAssignments() {
+  // Assignments flagged "Submitted" or "Paid" that are NOT tied to any real
+  // invoice record. Could be true duplicates/test data, OR real billed work
+  // that was only ever marked via the per-assignment "Mark invoice submitted"
+  // status button rather than through New Invoice. Surfaced here so the user
+  // can review and decide — never auto-deleted or auto-included in totals.
+  const idsInInvoices = new Set();
+  history.forEach(h => (h.snapshot || []).forEach(s => idsInInvoices.add(s.id)));
+  return trackedAssignments.filter(a =>
+    (a.status === 'invoice_submitted' || a.status === 'paid') && !idsInInvoices.has(a.id)
+  );
+}
+
 function renderOutstanding() {
   const el = document.getElementById('outstanding-list');
   const summary = document.getElementById('outstanding-summary');
@@ -2616,8 +2629,25 @@ function renderOutstanding() {
     });
   });
 
+  const orphans = findOrphanedSubmittedAssignments();
+  let orphanBanner = '';
+  if (orphans.length) {
+    const orphanTotal = orphans.reduce((s, a) => s + a.total, 0);
+    orphanBanner = `<div class="info info-gold" style="margin-bottom:20px;">
+      ⚠️ <strong>${orphans.length} assignment${orphans.length === 1 ? '' : 's'} totaling $${orphanTotal.toFixed(2)}</strong> ${orphans.length === 1 ? 'is' : 'are'} marked "Submitted" but ${orphans.length === 1 ? "isn't" : "aren't"} tied to any invoice record in History — not counted in the totals below.
+      This could be true duplicates, or real billed work only tracked via the per-assignment status button rather than a real invoice. Worth reviewing individually.
+      <div style="margin-top:10px;">${orphans.map(a => `<div style="padding:8px 0;border-top:1px solid rgba(0,0,0,.08);display:flex;justify-content:space-between;gap:10px;align-items:center;">
+        <div style="font-size:12px;"><strong>${fmtDateShort(a.date)}</strong> · ${a.clientName} — ${a.type} · ${a.patientName}</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div style="font-weight:600;">$${a.total.toFixed(2)}</div>
+          <button class="btn btn-outline btn-xs" onclick="advanceStatus('${a.id}','logged')">↩️ Revert to Logged</button>
+        </div>
+      </div>`).join('')}</div>
+    </div>`;
+  }
+
   if (!unpaid.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><h3>Nothing outstanding</h3><p>All invoiced assignments are paid.</p></div>';
+    el.innerHTML = orphanBanner + '<div class="empty"><div class="empty-icon">✅</div><h3>Nothing outstanding</h3><p>All invoiced assignments are paid.</p></div>';
     if (summary) summary.style.display = 'none';
     return;
   }
@@ -2639,7 +2669,7 @@ function renderOutstanding() {
   const byClient = {};
   unpaid.forEach(a => { (byClient[a.clientName] = byClient[a.clientName] || []).push(a); });
 
-  let html = '';
+  let html = orphanBanner;
   Object.keys(byClient).sort().forEach(clientName => {
     const items = byClient[clientName].sort((a, b) => a.date.localeCompare(b.date));
     const clientTotal = items.reduce((s, a) => s + a.total, 0);
