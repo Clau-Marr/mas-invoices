@@ -408,6 +408,10 @@ textarea{resize:vertical;min-height:70px;}
     <div class="page-title">Outstanding Assignments</div>
     <div class="page-sub">Every invoiced assignment still waiting on payment, across all clients.</div>
   </div>
+  <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;">
+    <input type="text" id="outstanding-search" list="outstanding-search-list" placeholder="🔍 Jump to agency…" oninput="jumpToOutstandingAgency()" onkeydown="if(event.key==='Enter')jumpToOutstandingAgency()" style="max-width:320px;">
+    <datalist id="outstanding-search-list"></datalist>
+  </div>
   <div id="outstanding-summary" style="display:none;">
     <div class="sum-bar" style="margin-bottom:20px;">
       <div class="sum-item"><div class="sum-lbl">Unpaid assignments</div><div class="sum-val" id="out-count">0</div></div>
@@ -3047,11 +3051,16 @@ function renderOutstanding() {
   const byClient = {};
   unpaid.forEach(a => { (byClient[a.clientName] = byClient[a.clientName] || []).push(a); });
 
+  const searchList = document.getElementById('outstanding-search-list');
+  if (searchList) {
+    searchList.innerHTML = Object.keys(byClient).sort().map(name => `<option value="${name.replace(/"/g, '&quot;')}">`).join('');
+  }
+
   let html = orphanBanner;
   Object.keys(byClient).sort().forEach(clientName => {
     const items = byClient[clientName].sort((a, b) => a.date.localeCompare(b.date));
     const clientTotal = items.reduce((s, a) => s + remainingOwedFor(a), 0);
-    html += `<div class="card" style="padding:20px;margin-bottom:16px;">
+    html += `<div class="card" id="out-client-${slugifyForId(clientName)}" data-client-name="${clientName.replace(/"/g, '&quot;')}" style="padding:20px;margin-bottom:16px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
         <div style="font-family:'Fraunces',serif;font-size:16px;">${clientName}</div>
         <div style="font-weight:600;color:var(--red);">$${clientTotal.toFixed(2)} outstanding</div>
@@ -3074,6 +3083,31 @@ function renderOutstanding() {
     </div>`;
   });
   el.innerHTML = html;
+}
+
+function slugifyForId(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'unknown';
+}
+
+// Jumps to (and briefly highlights) the outstanding card for the agency typed
+// or picked from the datalist. Tries exact match first, then "starts with",
+// then "contains", so partial typing still finds the right card.
+function jumpToOutstandingAgency() {
+  const raw = document.getElementById('outstanding-search').value.trim();
+  if (!raw) return;
+  const val = raw.toLowerCase();
+  const cards = Array.from(document.querySelectorAll('#outstanding-list [data-client-name]'));
+  const nameOf = (el) => (el.dataset.clientName || '').toLowerCase();
+
+  let target = cards.find(el => nameOf(el) === val)
+    || cards.find(el => nameOf(el).startsWith(val))
+    || cards.find(el => nameOf(el).includes(val));
+
+  if (!target) return;
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  target.style.transition = 'box-shadow .3s';
+  target.style.boxShadow = '0 0 0 3px var(--teal)';
+  setTimeout(() => { target.style.boxShadow = ''; }, 1500);
 }
 
 // ── DEMO ──────────────────────────────────────────────────
