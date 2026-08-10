@@ -393,6 +393,10 @@ textarea{resize:vertical;min-height:70px;}
       <div class="sum-item"><div class="sum-lbl">Outstanding</div><div class="sum-val" id="pay-total-outstanding">$0.00</div></div>
       <div class="sum-item"><div class="sum-lbl">Partially paid</div><div class="sum-val" id="pay-total-short">0</div></div>
     </div>
+    <button class="btn btn-outline btn-sm" style="margin-bottom:20px;" onclick="toggleMonthlySummary()">
+      <span id="monthly-summary-chevron">▸</span> 📊 Monthly summary
+    </button>
+    <div id="monthly-summary-card" style="display:none;margin-bottom:20px;"></div>
   </div>
 
   <div id="history-list"><div class="empty"><div class="empty-icon">📁</div><h3>No invoices yet</h3><p>Sent invoices appear here.</p></div></div>
@@ -582,6 +586,13 @@ textarea{resize:vertical;min-height:70px;}
   <input type="hidden" id="pay-mode"> <!-- 'single' (one assignment) or 'bulk' (whole invoice) -->
   <input type="hidden" id="pay-target-id"> <!-- assignment id or invoice/history id -->
   <div id="payment-modal-body" style="margin-bottom:16px;"></div>
+  <div class="form-grid g2" style="margin-bottom:16px;" id="pay-amount-row">
+    <div class="fg full">
+      <label>Amount received ($)</label>
+      <input type="number" id="pay-amount" min="0" step="0.01" oninput="updatePaymentAmountPreview()">
+      <div id="pay-amount-note" style="font-size:11px;color:var(--ink3);margin-top:4px;"></div>
+    </div>
+  </div>
   <div class="form-grid g2" style="margin-bottom:16px;">
     <div class="fg"><label>Payment date</label>
       <input type="date" id="pay-date">
@@ -1557,9 +1568,22 @@ function advanceStatus(assignId, newStatus) {
 }
 
 // ── PAYMENT TRACKING (assignment-level) ────────────────────
-// Each assignment optionally carries: payment = { paid, date, method, reference, note }
-// Invoice payment status is a rollup of its assignments' payment state — never stored directly.
-function isPaid(a) { return !!(a && a.payment && a.payment.paid); }
+// Each assignment optionally carries: payment = { date, method, reference, note,
+// amountPaid }. amountPaid is the ACTUAL amount received, which can be less than
+// or more than the billed total — everything (Outstanding, History totals, the
+// invoice view) derives from this one number rather than a separate paid/unpaid
+// flag, so a partial or over payment is reflected accurately everywhere at once.
+const PAID_EPSILON = 0.005; // guards against floating-point rounding (e.g. 69.999999)
+
+function amountReceivedFor(a) {
+  if (!a || !a.payment) return 0;
+  // Fallback for records saved before amountPaid existed (old paid:true flag) —
+  // treat those as fully paid at the billed total, same as before.
+  return a.payment.amountPaid != null ? a.payment.amountPaid : (a.payment.paid ? a.total : 0);
+}
+function remainingOwedFor(a) { return Math.max(0, (a?.total || 0) - amountReceivedFor(a)); }
+function isPaid(a) { return !!a && amountReceivedFor(a) >= a.total - PAID_EPSILON; } // "fully paid"
+function isPartiallyPaid(a) { return !!a && amountReceivedFor(a) > PAID_EPSILON && amountReceivedFor(a) < a.total - PAID_EPSILON; }
 
 function findAssignmentAnywhere(id) {
   return trackedAssignments.find(a => a.id === id) || assignments.find(a => a.id === id);
@@ -1573,28 +1597,41 @@ function invoiceRollup(h) {
   const list = invoiceAssignments(h);
   const total = list.length;
   const paid = list.filter(isPaid).length;
-  const status = total === 0 ? 'unpaid' : paid === 0 ? 'unpaid' : paid === total ? 'paid' : 'partial';
-  return { paid, total, status };
+  const totalBilled = list.reduce((s, a) => s + a.total, 0);
+  const totalReceived = list.reduce((s, a) => s + amountReceivedFor(a), 0);
+  const status = total === 0 || totalReceived <= PAID_EPSILON ? 'unpaid'
+    : totalReceived >= totalBilled - PAID_EPSILON ? 'paid'
+    : 'partial';
+  return { paid, total, status, totalBilled, totalReceived };
 }
 
 function openMarkPaidModal(mode, id) {
   document.getElementById('pay-mode').value = mode;
   document.getElementById('pay-target-id').value = id;
-  document.getElementById('pay-date').value = todayStr();
-  document.getElementById('pay-method').value = 'Direct deposit';
-  document.getElementById('pay-reference').value = '';
-  document.getElementById('pay-notes').value = '';
 
   let body = '';
   if (mode === 'single') {
     const a = findAssignmentAnywhere(id);
     if (!a) return;
-    document.getElementById('payment-modal-title').textContent = 'Mark assignment paid';
+    const existing = a.payment;
+    document.getElementById('pay-date').value = existing?.date || todayStr();
+    document.getElementById('pay-method').value = existing?.method || 'Direct deposit';
+    document.getElementById('pay-reference').value = existing?.reference || '';
+    document.getElementById('pay-notes').value = existing?.note || '';
+    document.getElementById('payment-modal-title').textContent = 'Mark as paid';
     body = `<div style="padding:12px 16px;background:var(--canvas);border-radius:var(--r-sm);">
       <div style="font-weight:600;margin-bottom:4px;">${a.clientName} — ${a.type}</div>
-      <div style="font-size:12px;color:var(--ink3);">${a.patientName} · ${fmtDateShort(a.date)} · $${a.total.toFixed(2)}</div>
+      <div style="font-size:12px;color:var(--ink3);">${a.patientName} · ${fmtDateShort(a.date)} · Billed: $${a.total.toFixed(2)}</div>
     </div>`;
+    document.getElementById('pay-amount-row').style.display = 'grid';
+    document.getElementById('pay-amount').value = (amountReceivedFor(a) > 0 ? amountReceivedFor(a) : a.total).toFixed(2);
+    document.getElementById('pay-amount').dataset.billed = a.total;
+    updatePaymentAmountPreview();
   } else {
+    document.getElementById('pay-date').value = todayStr();
+    document.getElementById('pay-method').value = 'Direct deposit';
+    document.getElementById('pay-reference').value = '';
+    document.getElementById('pay-notes').value = '';
     const h = history.find(x => x.id === id);
     if (!h) return;
     const roll = invoiceRollup(h);
@@ -1602,11 +1639,30 @@ function openMarkPaidModal(mode, id) {
     document.getElementById('payment-modal-title').textContent = 'Mark all assignments paid';
     body = `<div style="padding:12px 16px;background:var(--canvas);border-radius:var(--r-sm);">
       <div style="font-weight:600;margin-bottom:4px;">${h.client} — ${h.num}</div>
-      <div style="font-size:12px;color:var(--ink3);">This will mark all ${remaining} unpaid assignment${remaining === 1 ? '' : 's'} on this invoice as paid, using the same date/method/reference for each.</div>
+      <div style="font-size:12px;color:var(--ink3);">This will mark all ${remaining} unpaid assignment${remaining === 1 ? '' : 's'} as paid in full, using the same date/method/reference for each. To record a different amount for one of them, mark it individually instead.</div>
     </div>`;
+    // Bulk applies each assignment's own full billed amount — a single shared
+    // amount field wouldn't make sense across assignments with different totals.
+    document.getElementById('pay-amount-row').style.display = 'none';
   }
   document.getElementById('payment-modal-body').innerHTML = body;
   document.getElementById('payment-modal').style.display = 'flex';
+}
+
+function updatePaymentAmountPreview() {
+  const input = document.getElementById('pay-amount');
+  const billed = parseFloat(input.dataset.billed || '0');
+  const amount = parseFloat(input.value) || 0;
+  const note = document.getElementById('pay-amount-note');
+  const diff = billed - amount;
+  if (!input.value) { note.textContent = ''; return; }
+  if (Math.abs(diff) < PAID_EPSILON) {
+    note.innerHTML = '<span style="color:var(--green);">✓ Matches billed amount in full.</span>';
+  } else if (diff > 0) {
+    note.innerHTML = '<span style="color:var(--gold);">⚠ $' + diff.toFixed(2) + ' short of the billed $' + billed.toFixed(2) + ' — stays marked outstanding for the remainder.</span>';
+  } else {
+    note.innerHTML = '<span style="color:var(--teal);">ℹ $' + Math.abs(diff).toFixed(2) + ' more than billed — counts as fully paid.</span>';
+  }
 }
 
 function saveAssignmentPayment() {
@@ -1616,25 +1672,34 @@ function saveAssignmentPayment() {
   const method = document.getElementById('pay-method').value;
   const reference = document.getElementById('pay-reference').value.trim();
   const note = document.getElementById('pay-notes').value.trim();
-  const paymentRecord = { paid: true, date, method, reference, note };
 
-  let idsToMark = [];
   if (mode === 'single') {
-    idsToMark = [targetId];
-  } else {
-    const h = history.find(x => x.id === targetId);
-    if (!h) return;
-    idsToMark = invoiceAssignments(h).filter(a => !isPaid(a)).map(a => a.id);
+    const a = findAssignmentAnywhere(targetId);
+    if (!a) return;
+    const amount = parseFloat(document.getElementById('pay-amount').value);
+    if (!(amount >= 0)) { showToast('⚠️', 'Enter the amount received'); return; }
+    const paymentRecord = { date, method, reference, note, amountPaid: amount };
+    const fullyPaid = amount >= a.total - PAID_EPSILON;
+    applyPaymentToAssignment(targetId, paymentRecord, fullyPaid);
+    saveData();
+    closeModal('payment-modal');
+    renderHistory();
+    renderOutstanding();
+    showToast(fullyPaid ? '💚' : '◐', fullyPaid ? 'Assignment marked paid' : 'Partial payment recorded — $' + (a.total - amount).toFixed(2) + ' still outstanding');
+    return;
   }
+
+  // Bulk: mark every unpaid assignment on the invoice as fully paid at its own
+  // billed amount, using the same date/method/reference for each.
+  const h = history.find(x => x.id === targetId);
+  if (!h) return;
+  const idsToMark = invoiceAssignments(h).filter(a => !isPaid(a)).map(a => a.id);
   if (!idsToMark.length) { closeModal('payment-modal'); return; }
-
-  trackedAssignments = trackedAssignments.map(a =>
-    idsToMark.includes(a.id) ? {...a, status: 'paid', payment: paymentRecord, statusHistory: [...(a.statusHistory || []), { status: 'paid', date }]} : a
-  );
-  assignments = assignments.map(a =>
-    idsToMark.includes(a.id) ? {...a, status: 'paid', payment: paymentRecord} : a
-  );
-
+  idsToMark.forEach(id => {
+    const a = findAssignmentAnywhere(id);
+    if (!a) return;
+    applyPaymentToAssignment(id, { date, method, reference, note, amountPaid: a.total }, true);
+  });
   saveData();
   closeModal('payment-modal');
   renderHistory();
@@ -1642,14 +1707,43 @@ function saveAssignmentPayment() {
   showToast('💚', idsToMark.length > 1 ? idsToMark.length + ' assignments marked paid' : 'Assignment marked paid');
 }
 
+// Applies a payment record to one assignment (by id) in both trackedAssignments
+// and the current in-progress draft, if present. Status only advances to 'paid'
+// when fullyPaid is true — a partial payment keeps the assignment's status as
+// 'invoice_submitted' (still outstanding for the remainder) while still storing
+// exactly how much came in, so Outstanding/History totals reflect it accurately.
+function applyPaymentToAssignment(id, paymentRecord, fullyPaid) {
+  trackedAssignments = trackedAssignments.map(a => {
+    if (a.id !== id) return a;
+    const updated = {...a, payment: paymentRecord};
+    if (fullyPaid) {
+      updated.status = 'paid';
+      updated.statusHistory = [...(a.statusHistory || []), { status: 'paid', date: paymentRecord.date }];
+    }
+    return updated;
+  });
+  assignments = assignments.map(a => {
+    if (a.id !== id) return a;
+    const updated = {...a, payment: paymentRecord};
+    if (fullyPaid) updated.status = 'paid';
+    return updated;
+  });
+}
+
 function unmarkAssignmentPaid(id) {
   const a = trackedAssignments.find(x => x.id === id);
   if (!a) return;
-  const ok = confirm('Undo payment for this assignment?\n\n' + a.clientName + ' — ' + a.patientName + ' · ' + fmtDateShort(a.date));
+  const wasFull = a.status === 'paid';
+  const received = amountReceivedFor(a);
+  const receivedNote = received > 0 ? ' ($' + received.toFixed(2) + ' recorded)' : '';
+  const ok = confirm('Undo payment for this assignment?\n\n' + a.clientName + ' — ' + a.patientName + ' · ' + fmtDateShort(a.date) + receivedNote);
   if (!ok) return;
-  trackedAssignments = trackedAssignments.map(t =>
-    t.id === id ? {...t, status: 'invoice_submitted', payment: null, statusHistory: [...(t.statusHistory || []), { status: 'invoice_submitted', date: todayStr() }]} : t
-  );
+  trackedAssignments = trackedAssignments.map(t => {
+    if (t.id !== id) return t;
+    const updated = {...t, status: 'invoice_submitted', payment: null};
+    if (wasFull) updated.statusHistory = [...(t.statusHistory || []), { status: 'invoice_submitted', date: todayStr() }];
+    return updated;
+  });
   saveData();
   renderHistory();
   renderOutstanding();
@@ -2547,7 +2641,7 @@ function renderHistory() {
   const totalInvoiced = history.reduce((s, h) => s + h.total, 0);
   let totalReceived = 0, totalOutstanding = 0, partialCount = 0;
   history.forEach(h => {
-    invoiceAssignments(h).forEach(a => { if (isPaid(a)) totalReceived += a.total; else totalOutstanding += a.total; });
+    invoiceAssignments(h).forEach(a => { totalReceived += amountReceivedFor(a); totalOutstanding += remainingOwedFor(a); });
     if (rollups[h.id].status === 'partial') partialCount++;
   });
 
@@ -2558,6 +2652,8 @@ function renderHistory() {
     document.getElementById('pay-total-outstanding').textContent = '$' + totalOutstanding.toFixed(2);
     document.getElementById('pay-total-short').textContent = partialCount;
   }
+
+  renderMonthlySummary();
 
   // Filter
   let filtered = history;
@@ -2576,7 +2672,7 @@ function renderHistory() {
     const statusBadge = roll.status === 'paid'
       ? `<span class="badge badge-paid">✅ Paid</span>`
       : roll.status === 'partial'
-      ? `<span class="badge badge-partial">◐ ${roll.paid} of ${roll.total} paid</span>`
+      ? `<span class="badge badge-partial">◐ $${roll.totalReceived.toFixed(2)} of $${roll.totalBilled.toFixed(2)}</span>`
       : `<span class="badge badge-unpaid">⏳ Outstanding</span>`;
 
     const bulkBtn = roll.status !== 'paid' && roll.total > 0
@@ -2606,16 +2702,133 @@ function renderHistory() {
   el.innerHTML = html;
 }
 
+// ── MONTHLY SUMMARY ────────────────────────────────────────
+// Groups all invoices by the month they were created (invoice date, not
+// assignment dates), showing invoiced/received/outstanding per month — an
+// accounting-style rollup of the same numbers already shown per-invoice above.
+function toggleMonthlySummary() {
+  const card = document.getElementById('monthly-summary-card');
+  const chevron = document.getElementById('monthly-summary-chevron');
+  if (!card) return;
+  const showing = card.style.display !== 'none';
+  card.style.display = showing ? 'none' : 'block';
+  if (chevron) chevron.textContent = showing ? '▸' : '▾';
+}
+
+function monthLabelFor(key) {
+  const [y, m] = key.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+// Shared by both the on-screen table and the CSV export, so they can never
+// drift out of sync with each other.
+function computeMonthlySummary() {
+  const byMonth = {};
+  history.forEach(h => {
+    const monthKey = (h.date || '').slice(0, 7); // 'YYYY-MM'
+    if (!monthKey) return;
+    if (!byMonth[monthKey]) byMonth[monthKey] = { invoiced: 0, received: 0, outstanding: 0, count: 0 };
+    const bucket = byMonth[monthKey];
+    bucket.invoiced += h.total;
+    bucket.count += 1;
+    invoiceAssignments(h).forEach(a => {
+      bucket.received += amountReceivedFor(a);
+      bucket.outstanding += remainingOwedFor(a);
+    });
+  });
+  const months = Object.keys(byMonth).sort().reverse(); // most recent first
+  return { byMonth, months };
+}
+
+function renderMonthlySummary() {
+  const card = document.getElementById('monthly-summary-card');
+  if (!card) return;
+
+  if (!history.length) { card.innerHTML = ''; return; }
+
+  const { byMonth, months } = computeMonthlySummary();
+  if (!months.length) { card.innerHTML = ''; return; }
+
+  let html = `<div class="card" style="padding:20px;">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+      <button class="btn btn-outline btn-xs" onclick="exportMonthlySummaryCSV()">⬇ Export CSV</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 110px 110px 110px 70px;gap:10px;padding-bottom:8px;margin-bottom:8px;border-bottom:1.5px solid var(--canvas2);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);">
+      <span>Month</span><span style="text-align:right;">Invoiced</span><span style="text-align:right;">Received</span><span style="text-align:right;">Outstanding</span><span style="text-align:right;">Count</span>
+    </div>`;
+
+  let ytdInvoiced = 0, ytdReceived = 0;
+  const currentYear = new Date().getFullYear();
+
+  months.forEach(key => {
+    const b = byMonth[key];
+    if (key.startsWith(String(currentYear))) { ytdInvoiced += b.invoiced; ytdReceived += b.received; }
+    html += `<div style="display:grid;grid-template-columns:1fr 110px 110px 110px 70px;gap:10px;padding:8px 0;border-bottom:1px solid var(--canvas);font-size:13px;align-items:center;">
+      <span style="font-weight:500;">${monthLabelFor(key)}</span>
+      <span style="text-align:right;">$${b.invoiced.toFixed(2)}</span>
+      <span style="text-align:right;color:var(--green);">$${b.received.toFixed(2)}</span>
+      <span style="text-align:right;color:${b.outstanding > 0.005 ? 'var(--red)' : 'var(--ink3)'};">$${b.outstanding.toFixed(2)}</span>
+      <span style="text-align:right;color:var(--ink3);">${b.count}</span>
+    </div>`;
+  });
+
+  html += `<div style="display:grid;grid-template-columns:1fr 110px 110px 110px 70px;gap:10px;padding-top:10px;margin-top:4px;border-top:2px solid var(--ink);font-size:13px;font-weight:600;">
+      <span>${currentYear} year-to-date</span>
+      <span style="text-align:right;">$${ytdInvoiced.toFixed(2)}</span>
+      <span style="text-align:right;color:var(--green);">$${ytdReceived.toFixed(2)}</span>
+      <span></span><span></span>
+    </div>
+  </div>`;
+
+  card.innerHTML = html;
+}
+
+function exportMonthlySummaryCSV() {
+  const { byMonth, months } = computeMonthlySummary();
+  if (!months.length) { showToast('⚠️', 'No invoices to export yet'); return; }
+
+  const rows = [['Month', 'Invoiced', 'Received', 'Outstanding', 'Invoice Count']];
+  months.forEach(key => {
+    const b = byMonth[key];
+    rows.push([monthLabelFor(key), b.invoiced.toFixed(2), b.received.toFixed(2), b.outstanding.toFixed(2), b.count]);
+  });
+  // Escape any field containing a comma/quote/newline per standard CSV rules
+  const escapeCsv = (v) => {
+    const s = String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const csvContent = rows.map(r => r.map(escapeCsv).join(',')).join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `MAS-monthly-summary-${todayStr()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('✅', 'Monthly summary exported');
+}
+
 function renderInvoiceAssignmentRows(h) {
   const list = invoiceAssignments(h);
   if (!list.length) return '<div style="font-size:12px;color:var(--ink3);padding:10px 0;">No assignment details saved for this invoice.</div>';
   return list.map(a => {
     const paid = isPaid(a);
-    const pill = paid ? `<span class="badge badge-paid">✅ Paid</span>` : `<span class="badge badge-unpaid">⏳ Unpaid</span>`;
+    const partial = isPartiallyPaid(a);
+    const received = amountReceivedFor(a);
+    const pill = paid
+      ? `<span class="badge badge-paid">✅ Paid</span>`
+      : partial
+      ? `<span class="badge badge-partial">◐ $${received.toFixed(2)} of $${a.total.toFixed(2)}</span>`
+      : `<span class="badge badge-unpaid">⏳ Unpaid</span>`;
     const actionBtn = paid
       ? `<button class="btn btn-ghost btn-xs" onclick="unmarkAssignmentPaid('${a.id}')">Undo</button>`
+      : partial
+      ? `<button class="btn btn-outline btn-xs" onclick="openMarkPaidModal('single','${a.id}')">Edit</button> <button class="btn btn-ghost btn-xs" onclick="unmarkAssignmentPaid('${a.id}')">Undo</button>`
       : `<button class="btn btn-teal btn-xs" onclick="openMarkPaidModal('single','${a.id}')">Mark paid</button>`;
-    const payDetail = paid
+    const payDetail = a.payment
       ? `<div style="font-size:11px;color:var(--ink3);margin-top:2px;">${a.payment.method}${a.payment.reference ? ' · Ref ' + a.payment.reference : ''} · ${fmtDateShort(a.payment.date)}${a.payment.note ? ' · ' + a.payment.note : ''}</div>`
       : '';
     return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--canvas);font-size:12px;">
@@ -2625,7 +2838,7 @@ function renderInvoiceAssignmentRows(h) {
       </div>
       <div style="font-weight:600;white-space:nowrap;">$${a.total.toFixed(2)}</div>
       <div>${pill}</div>
-      <div>${actionBtn}</div>
+      <div style="display:flex;gap:4px;">${actionBtn}</div>
     </div>`;
   }).join('');
 }
@@ -2743,7 +2956,7 @@ function renderOutstanding() {
     return;
   }
 
-  const total = unpaid.reduce((s, a) => s + a.total, 0);
+  const total = unpaid.reduce((s, a) => s + remainingOwedFor(a), 0);
   const clientSet = new Set(unpaid.map(a => a.clientId));
   if (summary) {
     summary.style.display = 'block';
@@ -2763,20 +2976,27 @@ function renderOutstanding() {
   let html = orphanBanner;
   Object.keys(byClient).sort().forEach(clientName => {
     const items = byClient[clientName].sort((a, b) => a.date.localeCompare(b.date));
-    const clientTotal = items.reduce((s, a) => s + a.total, 0);
+    const clientTotal = items.reduce((s, a) => s + remainingOwedFor(a), 0);
     html += `<div class="card" style="padding:20px;margin-bottom:16px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
         <div style="font-family:'Fraunces',serif;font-size:16px;">${clientName}</div>
         <div style="font-weight:600;color:var(--red);">$${clientTotal.toFixed(2)} outstanding</div>
       </div>
-      ${items.map(a => `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--canvas);font-size:12px;">
+      ${items.map(a => {
+        const partial = isPartiallyPaid(a);
+        const remaining = remainingOwedFor(a);
+        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--canvas);font-size:12px;">
         <div style="flex:1;min-width:0;">
           <div style="font-weight:500;">${fmtDateShort(a.date)} · ${a.patientName} <span style="color:var(--ink3);font-weight:400;">— ${a.type}</span></div>
-          <div style="font-size:11px;color:var(--ink3);margin-top:2px;">Invoice ${invoiceNumFor(a.id)}</div>
+          <div style="font-size:11px;color:var(--ink3);margin-top:2px;">Invoice ${invoiceNumFor(a.id)}${partial ? ` · $${amountReceivedFor(a).toFixed(2)} of $${a.total.toFixed(2)} received` : ''}</div>
         </div>
-        <div style="font-weight:600;white-space:nowrap;">$${a.total.toFixed(2)}</div>
-        <button class="btn btn-teal btn-xs" onclick="openMarkPaidModal('single','${a.id}')">Mark paid</button>
-      </div>`).join('')}
+        <div style="text-align:right;">
+          <div style="font-weight:600;white-space:nowrap;">$${remaining.toFixed(2)}</div>
+          ${partial ? `<div style="font-size:10px;color:var(--ink3);">of $${a.total.toFixed(2)}</div>` : ''}
+        </div>
+        <button class="btn btn-teal btn-xs" onclick="openMarkPaidModal('single','${a.id}')">${partial ? 'Update' : 'Mark paid'}</button>
+      </div>`;
+      }).join('')}
     </div>`;
   });
   el.innerHTML = html;
