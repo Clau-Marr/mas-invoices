@@ -592,6 +592,12 @@ textarea{resize:vertical;min-height:70px;}
       <input type="number" id="pay-amount" min="0" step="0.01" oninput="updatePaymentAmountPreview()">
       <div id="pay-amount-note" style="font-size:11px;color:var(--ink3);margin-top:4px;"></div>
     </div>
+    <div class="fg full" id="pay-accept-full-row" style="display:none;">
+      <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:13px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="pay-accept-full" onchange="updatePaymentAmountPreview()">
+        Accept this as payment in full — lowers the billed amount to match, so nothing stays outstanding
+      </label>
+    </div>
   </div>
   <div class="form-grid g2" style="margin-bottom:16px;">
     <div class="fg"><label>Payment date</label>
@@ -1044,14 +1050,7 @@ function parseEvent(ev) {
   const bestByStatus = (list) => list.reduce((best, t) => !best || statusRank(t.status) > statusRank(best.status) ? t : best, null);
 
   let alreadyTracked = null;
-  // Skip auto-matching entirely when start === end — a zero-duration event,
-  // almost always caused by a calendar entry that never got a real end time set
-  // (Google Calendar sometimes defaults end=start on quick-added events). That
-  // timestamp isn't a reliable fingerprint: if this habit repeats for the same
-  // patient/client, multiple genuinely different real visits could all share the
-  // identical broken "time slot" and get conflated. Safer to require a manual
-  // "✓ Mark sent" confirmation for these than risk a false match.
-  if (startTime && endTime && startTime !== endTime) {
+  if (startTime && endTime) {
     const sameSlot = trackedAssignments.filter(t => t.date === date && t.start === startTime && t.end === endTime);
 
     if (client) {
@@ -1078,6 +1077,23 @@ function parseEvent(ev) {
         const closeMatches = sameSlot.filter(t => similarityScore(t.patientName || '', patientName || '') > 0.85);
         alreadyTracked = bestByStatus(closeMatches);
       }
+    }
+
+    // Zero-duration safety check: a start===end timestamp is usually a calendar
+    // entry that never got a real end time set. On its own that's not a problem —
+    // it still uniquely identifies one visit as long as only ONE tracked record
+    // shares that exact patient+date+time. Only skip the match when it's
+    // genuinely ambiguous: the same patient has MULTIPLE zero-duration visits on
+    // the same day (e.g. two separate no-shows), where auto-matching could
+    // silently borrow the wrong one's status. That's the only real risk — a
+    // different patient at the same broken timestamp was never actually a
+    // collision, since patient name is part of every tier above.
+    if (alreadyTracked && startTime === endTime && patientName) {
+      const identicalSlotForPatient = trackedAssignments.filter(t =>
+        t.date === date && t.start === startTime && t.end === endTime &&
+        normalizeForMatch(t.patientName) === normalizeForMatch(patientName)
+      );
+      if (identicalSlotForPatient.length > 1) alreadyTracked = null;
     }
   }
 
@@ -1624,6 +1640,7 @@ function openMarkPaidModal(mode, id) {
       <div style="font-size:12px;color:var(--ink3);">${a.patientName} · ${fmtDateShort(a.date)} · Billed: $${a.total.toFixed(2)}</div>
     </div>`;
     document.getElementById('pay-amount-row').style.display = 'grid';
+    document.getElementById('pay-accept-full').checked = false;
     document.getElementById('pay-amount').value = (amountReceivedFor(a) > 0 ? amountReceivedFor(a) : a.total).toFixed(2);
     document.getElementById('pay-amount').dataset.billed = a.total;
     updatePaymentAmountPreview();
@@ -1654,12 +1671,21 @@ function updatePaymentAmountPreview() {
   const billed = parseFloat(input.dataset.billed || '0');
   const amount = parseFloat(input.value) || 0;
   const note = document.getElementById('pay-amount-note');
+  const acceptRow = document.getElementById('pay-accept-full-row');
+  const acceptCheckbox = document.getElementById('pay-accept-full');
   const diff = billed - amount;
+  const isShort = diff > PAID_EPSILON;
+
+  acceptRow.style.display = isShort ? 'block' : 'none';
+  if (!isShort) acceptCheckbox.checked = false;
+
   if (!input.value) { note.textContent = ''; return; }
   if (Math.abs(diff) < PAID_EPSILON) {
     note.innerHTML = '<span style="color:var(--green);">✓ Matches billed amount in full.</span>';
-  } else if (diff > 0) {
-    note.innerHTML = '<span style="color:var(--gold);">⚠ $' + diff.toFixed(2) + ' short of the billed $' + billed.toFixed(2) + ' — stays marked outstanding for the remainder.</span>';
+  } else if (isShort) {
+    note.innerHTML = acceptCheckbox.checked
+      ? '<span style="color:var(--teal);">The billed amount will be adjusted from $' + billed.toFixed(2) + ' to $' + amount.toFixed(2) + ' and marked fully paid — the invoice total updates too.</span>'
+      : '<span style="color:var(--gold);">⚠ $' + diff.toFixed(2) + ' short of the billed $' + billed.toFixed(2) + ' — stays marked outstanding for the remainder, unless you check the box above.</span>';
   } else {
     note.innerHTML = '<span style="color:var(--teal);">ℹ $' + Math.abs(diff).toFixed(2) + ' more than billed — counts as fully paid.</span>';
   }
@@ -1678,14 +1704,24 @@ function saveAssignmentPayment() {
     if (!a) return;
     const amount = parseFloat(document.getElementById('pay-amount').value);
     if (!(amount >= 0)) { showToast('⚠️', 'Enter the amount received'); return; }
+
+    const acceptAsFull = document.getElementById('pay-accept-full').checked && amount < a.total - PAID_EPSILON;
+    if (acceptAsFull) {
+      adjustBilledAmount(targetId, amount);
+    }
+
     const paymentRecord = { date, method, reference, note, amountPaid: amount };
-    const fullyPaid = amount >= a.total - PAID_EPSILON;
+    const fullyPaid = acceptAsFull || amount >= a.total - PAID_EPSILON;
     applyPaymentToAssignment(targetId, paymentRecord, fullyPaid);
     saveData();
     closeModal('payment-modal');
     renderHistory();
     renderOutstanding();
-    showToast(fullyPaid ? '💚' : '◐', fullyPaid ? 'Assignment marked paid' : 'Partial payment recorded — $' + (a.total - amount).toFixed(2) + ' still outstanding');
+    if (acceptAsFull) {
+      showToast('💚', 'Marked paid in full — billed amount adjusted to $' + amount.toFixed(2));
+    } else {
+      showToast(fullyPaid ? '💚' : '◐', fullyPaid ? 'Assignment marked paid' : 'Partial payment recorded — $' + (a.total - amount).toFixed(2) + ' still outstanding');
+    }
     return;
   }
 
@@ -1705,6 +1741,44 @@ function saveAssignmentPayment() {
   renderHistory();
   renderOutstanding();
   showToast('💚', idsToMark.length > 1 ? idsToMark.length + ' assignments marked paid' : 'Assignment marked paid');
+}
+
+// Lowers an assignment's billed total to match what was actually accepted as
+// payment in full (e.g. agency shorted a few dollars and you're not chasing
+// it). Updates the live tracked assignment AND any invoice snapshot(s) that
+// reference it, recomputing that invoice's total from its snapshot — so
+// History, Outstanding, and the invoice view/print/email all show the new
+// amount consistently, with nothing left outstanding. Logs an audit note on
+// the assignment's edit history for transparency.
+function adjustBilledAmount(id, newTotal) {
+  const adjustOne = (a) => {
+    const mileageAmt = a.mileageAmt || 0;
+    const newServiceAmt = Math.max(0, newTotal - mileageAmt);
+    const changeNote = 'Billed amount adjusted: $' + a.total.toFixed(2) + ' → $' + newTotal.toFixed(2) + ' (accepted as paid in full)';
+    return {
+      ...a,
+      total: newTotal,
+      serviceAmt: newServiceAmt,
+      editHistory: [...(a.editHistory || []), { date: todayStr(), changes: [changeNote], previousStatus: a.status }]
+    };
+  };
+
+  trackedAssignments = trackedAssignments.map(a => a.id === id ? adjustOne(a) : a);
+  assignments = assignments.map(a => a.id === id ? adjustOne(a) : a);
+
+  // Keep any invoice(s) referencing this assignment in sync — the invoice
+  // view/print/email renders from the frozen snapshot, not live trackedAssignments,
+  // so the snapshot's copy needs the same adjustment, and the invoice's own
+  // total needs recomputing from its (now-updated) snapshot.
+  history = history.map(h => {
+    if (!h.snapshot || !h.snapshot.some(s => s.id === id)) return h;
+    const newSnapshot = h.snapshot.map(s => {
+      if (s.id !== id) return s;
+      const mileageAmt = s.mileageAmt || 0;
+      return {...s, total: newTotal, serviceAmt: Math.max(0, newTotal - mileageAmt)};
+    });
+    return {...h, snapshot: newSnapshot, total: newSnapshot.reduce((sum, s) => sum + s.total, 0)};
+  });
 }
 
 // Applies a payment record to one assignment (by id) in both trackedAssignments
