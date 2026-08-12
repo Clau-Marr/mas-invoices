@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MÁS Professional Services — Invoice Generator</title>
+<title>Novium — Invoice &amp; Payment Tracking</title>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,400;0,600;1,300&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -221,12 +221,13 @@ textarea{resize:vertical;min-height:70px;}
 <body>
 
 <div class="hdr">
-  <div class="logo">MÁS <span class="logo-sub">Professional Services</span></div>
+  <div class="logo">Novium</div>
   <div class="hdr-nav">
     <button class="hdr-tab active" onclick="showPage('page-invoice')">New Invoice</button>
     <button class="hdr-tab" onclick="showPage('page-clients')">Clients</button>
     <button class="hdr-tab" onclick="showPage('page-history')">History</button>
     <button class="hdr-tab" onclick="showPage('page-outstanding')">Outstanding</button>
+    <button class="hdr-tab" onclick="showPage('page-mileage')">Mileage</button>
     <button class="hdr-tab" onclick="openSettingsModal()" title="Business settings">⚙</button>
   </div>
 </div>
@@ -251,7 +252,7 @@ textarea{resize:vertical;min-height:70px;}
       <div id="gcal-box" class="gcal-connect">
         <div class="gcal-icon">📅</div>
         <h3>Sign in with Google</h3>
-        <p>Connect the Google account where your MÁS calendar lives. The app reads your events, bills them automatically, and can email invoices straight from your Gmail.</p>
+        <p>Connect the Google account where your calendar lives. The app reads your events, bills them automatically, and can email invoices straight from your Gmail.</p>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
           <button class="btn btn-primary" id="btn-google" onclick="startGoogleAuth()">
             <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
@@ -399,6 +400,8 @@ textarea{resize:vertical;min-height:70px;}
     <div id="monthly-summary-card" style="display:none;margin-bottom:20px;"></div>
   </div>
 
+  <div id="mismatch-banner"></div>
+
   <div id="history-list"><div class="empty"><div class="empty-icon">📁</div><h3>No invoices yet</h3><p>Sent invoices appear here.</p></div></div>
 </div>
 
@@ -420,6 +423,33 @@ textarea{resize:vertical;min-height:70px;}
     </div>
   </div>
   <div id="outstanding-list"><div class="empty"><div class="empty-icon">✅</div><h3>Nothing outstanding</h3><p>All invoiced assignments are paid.</p></div></div>
+</div>
+
+<!-- PAGE: MILEAGE -->
+<div class="page" id="page-mileage">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+    <div>
+      <div class="page-title">Mileage Log</div>
+      <div class="page-sub">Every assignment with miles logged — for billing reconciliation and your own records.</div>
+    </div>
+    <button class="btn btn-outline btn-sm" onclick="exportMileageCSV()">⬇ Export CSV</button>
+  </div>
+  <div style="margin-bottom:20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <select id="mileage-month-filter" onchange="renderMileageLog()" style="width:auto;font-size:12px;padding:6px 10px;">
+      <option value="all">All time</option>
+    </select>
+    <select id="mileage-client-filter" onchange="renderMileageLog()" style="width:auto;font-size:12px;padding:6px 10px;">
+      <option value="all">All agencies</option>
+    </select>
+  </div>
+  <div id="mileage-summary" style="display:none;">
+    <div class="sum-bar" style="margin-bottom:20px;">
+      <div class="sum-item"><div class="sum-lbl">Trips</div><div class="sum-val" id="mi-count">0</div></div>
+      <div class="sum-item"><div class="sum-lbl">Total miles</div><div class="sum-val" id="mi-miles">0</div></div>
+      <div class="sum-item"><div class="sum-lbl">Billed for mileage</div><div class="sum-val" id="mi-billed">$0.00</div></div>
+    </div>
+  </div>
+  <div id="mileage-list"><div class="empty"><div class="empty-icon">🗺️</div><h3>No mileage logged yet</h3><p>Miles entered on assignments will show up here.</p></div></div>
 </div>
 </div>
 
@@ -451,7 +481,13 @@ textarea{resize:vertical;min-height:70px;}
   </div>
   <div class="info info-green" id="m-billing-preview" style="display:none;margin-bottom:14px;"></div>
   <div class="form-grid g2">
-    <div class="fg"><label>Miles traveled</label><input type="number" id="m-miles" placeholder="0" min="0" oninput="calcBilling()"></div>
+    <div class="fg">
+      <label>Miles traveled</label>
+      <div style="display:flex;gap:6px;">
+        <input type="number" id="m-miles" placeholder="0" min="0" oninput="calcBilling()" style="flex:1;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="openDirectionsForAssignment()" title="Opens Google Maps directions from your home address to this assignment's location">🗺️</button>
+      </div>
+    </div>
     <div class="fg"><label>Notes</label><input type="text" id="m-notes"></div>
     <div class="fg full"><label>Submission link (optional)</label><input type="url" id="m-sublink" placeholder="Paste the assignment-specific link from the agency's email here"></div>
   </div>
@@ -599,7 +635,7 @@ textarea{resize:vertical;min-height:70px;}
     <div class="fg full" id="pay-accept-full-row" style="display:none;">
       <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:13px;cursor:pointer;font-weight:400;">
         <input type="checkbox" id="pay-accept-full" onchange="updatePaymentAmountPreview()">
-        Accept this as payment in full — lowers the billed amount to match, so nothing stays outstanding
+        Update the billed amount to match this payment (recommended — keeps totals accurate, nothing stays outstanding)
       </label>
     </div>
   </div>
@@ -640,10 +676,20 @@ textarea{resize:vertical;min-height:70px;}
   <div class="modal-title">Business settings</div>
   <p style="font-size:13px;color:var(--ink3);margin-bottom:18px;">This shows in the header of every invoice you generate.</p>
   <div class="form-grid" style="margin-bottom:6px;">
-    <div class="fg"><label>Your name / business name</label><input type="text" id="set-name" placeholder="Claudia Marroquin"></div>
+    <div class="fg"><label>Business name</label><input type="text" id="set-business-name" placeholder="Your business or agency name"></div>
+    <div class="fg"><label>Tagline (optional)</label><input type="text" id="set-tagline" placeholder="e.g. Medical Interpretation Services"></div>
+    <div class="fg"><label>Your name</label><input type="text" id="set-name" placeholder="Full name"></div>
     <div class="fg"><label>Mailing address line 1</label><input type="text" id="set-addr1" placeholder="123 Main St"></div>
-    <div class="fg"><label>City, State, ZIP</label><input type="text" id="set-addr2" placeholder="Santa Clara, CA 95050"></div>
+    <div class="fg"><label>City, State, ZIP</label><input type="text" id="set-addr2" placeholder="City, State ZIP"></div>
   </div>
+
+  <div class="divider"></div>
+  <div style="margin-bottom:18px;">
+    <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Home address (for mileage)</div>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:10px;line-height:1.5;">Not shown on invoices — just used as the starting point when you look up driving directions to an assignment.</div>
+    <div class="fg"><input type="text" id="set-home-address" placeholder="123 Main St, Santa Clara, CA 95050"></div>
+  </div>
+
   <div class="modal-actions" style="margin-top:18px;">
     <button class="btn btn-ghost" onclick="closeModal('settings-modal')">Cancel</button>
     <button class="btn btn-teal" onclick="saveSettings()">Save</button>
@@ -713,7 +759,12 @@ let accessToken = null;
 let tokenClient = null;
 let currentStatusAssignId = null;
 let driveBackupFileId = null; // Google Drive file ID for auto-backup
-let businessInfo = { name: 'Claudia Marroquin', addr1: '', addr2: 'Santa Clara, CA' };
+// businessName/tagline are what's PRINTED on invoices — each user's own business,
+// not the app's own branding. name/addr1/addr2 are the contact details shown below
+// it. Blank by default so a fresh install doesn't inherit anyone else's business —
+// see loadData() for the one-time migration that fills these in for existing users
+// upgrading from before these fields existed.
+let businessInfo = { businessName: '', tagline: '', name: '', addr1: '', addr2: '' };
 let isDemoMode = false;
 let realClientsBackup = null;
 // Tracks IDs of assignments freshly created (via import or manual add) that belong
@@ -776,7 +827,7 @@ function saveToDrive() {
         }
       }).catch(e => console.log('Drive update error:', e));
     } else {
-      // Create new file in MÁS Backups folder
+      // Create new file in Novium Backups folder
       findOrCreateDriveFolder().then(folderId => {
         const metadata = { name: 'MAS-auto-backup.json', parents: folderId ? [folderId] : [], mimeType: 'application/json' };
         const form = new FormData();
@@ -806,7 +857,7 @@ function findOrCreateDriveFolder() {
     return fetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'MÁS Backups', mimeType: 'application/vnd.google-apps.folder' })
+      body: JSON.stringify({ name: 'Novium Backups', mimeType: 'application/vnd.google-apps.folder' })
     }).then(r => r.json()).then(f => f.id);
   }).catch(() => null);
 }
@@ -846,6 +897,15 @@ function loadData() {
       return a;
     });
     if (b) businessInfo = JSON.parse(b);
+    // One-time migration: earlier versions hardcoded the invoice header to "MÁS
+    // Professional Services" / "Medical Interpretation Services" — anyone with
+    // saved data from before businessName/tagline existed gets those preserved
+    // as their starting values, so upgrading doesn't change what's already
+    // printed on their invoices. Editable (or clearable) anytime in Settings.
+    if (businessInfo && businessInfo.businessName === undefined) {
+      businessInfo.businessName = 'MÁS Professional Services';
+      businessInfo.tagline = 'Medical Interpretation Services';
+    }
     if (mo) manualSentOverrides = JSON.parse(mo);
     if (d) driveBackupFileId = d;
   } catch(e) { console.log('Load error:', e); }
@@ -1376,6 +1436,28 @@ function onTypeChange() {
   calcBilling();
 }
 
+// Opens Google Maps with driving directions pre-filled from the saved home
+// address to this assignment's location — no API key or integration needed,
+// just a plain Maps URL. You read the mileage off the map and type it in
+// yourself; nothing here writes back automatically.
+function openDirectionsForAssignment() {
+  const home = (businessInfo.homeAddress || '').trim();
+  const destination = document.getElementById('m-location').value.trim();
+  if (!home) {
+    showToast('⚠️', 'Add your home address in Settings first');
+    return;
+  }
+  if (!destination) {
+    showToast('⚠️', 'Enter a location for this assignment first');
+    return;
+  }
+  const url = 'https://www.google.com/maps/dir/?api=1'
+    + '&origin=' + encodeURIComponent(home)
+    + '&destination=' + encodeURIComponent(destination)
+    + '&travelmode=driving';
+  window.open(url, '_blank');
+}
+
 function calcBilling() {
   const c = clients.find(x => x.id === document.getElementById('m-client').value);
   const type = document.getElementById('m-type').value;
@@ -1644,7 +1726,7 @@ function openMarkPaidModal(mode, id) {
       <div style="font-size:12px;color:var(--ink3);">${a.patientName} · ${fmtDateShort(a.date)} · Billed: $${a.total.toFixed(2)}</div>
     </div>`;
     document.getElementById('pay-amount-row').style.display = 'grid';
-    document.getElementById('pay-accept-full').checked = false;
+    document.getElementById('pay-accept-full').checked = true;
     document.getElementById('pay-amount').value = (amountReceivedFor(a) > 0 ? amountReceivedFor(a) : a.total).toFixed(2);
     document.getElementById('pay-amount').dataset.billed = a.total;
     updatePaymentAmountPreview();
@@ -1677,21 +1759,25 @@ function updatePaymentAmountPreview() {
   const note = document.getElementById('pay-amount-note');
   const acceptRow = document.getElementById('pay-accept-full-row');
   const acceptCheckbox = document.getElementById('pay-accept-full');
-  const diff = billed - amount;
-  const isShort = diff > PAID_EPSILON;
+  const diff = billed - amount; // positive = short (underpaid), negative = overpaid
+  const mismatched = Math.abs(diff) > PAID_EPSILON;
 
-  acceptRow.style.display = isShort ? 'block' : 'none';
-  if (!isShort) acceptCheckbox.checked = false;
+  acceptRow.style.display = mismatched ? 'block' : 'none';
 
   if (!input.value) { note.textContent = ''; return; }
-  if (Math.abs(diff) < PAID_EPSILON) {
+  if (!mismatched) {
     note.innerHTML = '<span style="color:var(--green);">✓ Matches billed amount in full.</span>';
-  } else if (isShort) {
-    note.innerHTML = acceptCheckbox.checked
-      ? '<span style="color:var(--teal);">The billed amount will be adjusted from $' + billed.toFixed(2) + ' to $' + amount.toFixed(2) + ' and marked fully paid — the invoice total updates too.</span>'
-      : '<span style="color:var(--gold);">⚠ $' + diff.toFixed(2) + ' short of the billed $' + billed.toFixed(2) + ' — stays marked outstanding for the remainder, unless you check the box above.</span>';
+  } else if (acceptCheckbox.checked) {
+    note.innerHTML = '<span style="color:var(--teal);">The billed amount will be adjusted from $' + billed.toFixed(2) + ' to $' + amount.toFixed(2) + ' and marked fully paid — the invoice total updates too.</span>';
+  } else if (diff > 0) {
+    // Short: leaving the box unchecked keeps this a genuine partial payment,
+    // tracked separately from the original billed amount, with a balance left owing.
+    note.innerHTML = '<span style="color:var(--gold);">⚠ $' + diff.toFixed(2) + ' short of the billed $' + billed.toFixed(2) + ' — will stay marked outstanding for the remainder instead of updating the billed total.</span>';
   } else {
-    note.innerHTML = '<span style="color:var(--teal);">ℹ $' + Math.abs(diff).toFixed(2) + ' more than billed — counts as fully paid.</span>';
+    // Over: leaving the box unchecked still marks it fully paid, but the
+    // billed total (and invoice) stay at the original amount — only the
+    // payment record shows the larger amount actually received.
+    note.innerHTML = '<span style="color:var(--teal);">ℹ $' + Math.abs(diff).toFixed(2) + ' more than billed — will be marked fully paid, but the billed total stays at $' + billed.toFixed(2) + ' instead of updating.</span>';
   }
 }
 
@@ -1709,19 +1795,19 @@ function saveAssignmentPayment() {
     const amount = parseFloat(document.getElementById('pay-amount').value);
     if (!(amount >= 0)) { showToast('⚠️', 'Enter the amount received'); return; }
 
-    const acceptAsFull = document.getElementById('pay-accept-full').checked && amount < a.total - PAID_EPSILON;
-    if (acceptAsFull) {
+    const adjustBilled = document.getElementById('pay-accept-full').checked && Math.abs(amount - a.total) > PAID_EPSILON;
+    if (adjustBilled) {
       adjustBilledAmount(targetId, amount);
     }
 
     const paymentRecord = { date, method, reference, note, amountPaid: amount };
-    const fullyPaid = acceptAsFull || amount >= a.total - PAID_EPSILON;
+    const fullyPaid = adjustBilled || amount >= a.total - PAID_EPSILON;
     applyPaymentToAssignment(targetId, paymentRecord, fullyPaid);
     saveData();
     closeModal('payment-modal');
     renderHistory();
     renderOutstanding();
-    if (acceptAsFull) {
+    if (adjustBilled) {
       showToast('💚', 'Marked paid in full — billed amount adjusted to $' + amount.toFixed(2));
     } else {
       showToast(fullyPaid ? '💚' : '◐', fullyPaid ? 'Assignment marked paid' : 'Partial payment recorded — $' + (a.total - amount).toFixed(2) + ' still outstanding');
@@ -1783,6 +1869,67 @@ function adjustBilledAmount(id, newTotal) {
     });
     return {...h, snapshot: newSnapshot, total: newSnapshot.reduce((sum, s) => sum + s.total, 0)};
   });
+}
+
+// ── MISMATCHED PAYMENTS ─────────────────────────────────────
+// Assignments marked "Paid" where the amount actually received doesn't match
+// the billed total — most commonly from before the "update billed amount to
+// match this payment" checkbox existed (or from times it was left unchecked).
+// These make "Total invoiced" vs "Total received" look wrong even though both
+// numbers are individually accurate, since one side is stale. Surfaced here so
+// they can be reviewed and corrected, individually or all at once — never
+// changed silently.
+function findMismatchedPayments() {
+  return trackedAssignments.filter(a => isPaid(a) && Math.abs(amountReceivedFor(a) - a.total) > PAID_EPSILON);
+}
+
+function renderMismatchBanner() {
+  const el = document.getElementById('mismatch-banner');
+  if (!el) return;
+  const mismatches = findMismatchedPayments();
+  if (!mismatches.length) { el.innerHTML = ''; return; }
+
+  const totalDiff = mismatches.reduce((s, a) => s + (amountReceivedFor(a) - a.total), 0);
+
+  el.innerHTML = `<div class="info info-gold" style="margin-bottom:20px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+      <div>⚠️ <strong>${mismatches.length} paid assignment${mismatches.length === 1 ? '' : 's'}</strong> ${mismatches.length === 1 ? 'has' : 'have'} a received amount that doesn't match the billed total — this is why "Total invoiced" and "Total received" may not line up. Review and fix below, or fix them all at once.</div>
+      ${mismatches.length > 1 ? `<button class="btn btn-teal btn-sm" style="flex-shrink:0;" onclick="fixAllMismatchedPayments()">✓ Fix all ${mismatches.length}</button>` : ''}
+    </div>
+    <div style="margin-top:10px;">${mismatches.map(a => {
+      const received = amountReceivedFor(a);
+      const diff = received - a.total;
+      return `<div style="padding:8px 0;border-top:1px solid rgba(0,0,0,.08);display:flex;justify-content:space-between;gap:10px;align-items:center;">
+        <div style="font-size:12px;"><strong>${fmtDateShort(a.date)}</strong> · ${a.clientName} — ${a.patientName} · billed $${a.total.toFixed(2)}, received $${received.toFixed(2)} <span style="color:${diff > 0 ? 'var(--teal)' : 'var(--red)'};">(${diff > 0 ? '+' : ''}$${diff.toFixed(2)})</span></div>
+        <button class="btn btn-outline btn-xs" onclick="fixMismatchedPayment('${a.id}')">✓ Update billed to $${received.toFixed(2)}</button>
+      </div>`;
+    }).join('')}</div>
+  </div>`;
+}
+
+function fixMismatchedPayment(id) {
+  const a = trackedAssignments.find(x => x.id === id);
+  if (!a) return;
+  adjustBilledAmount(id, amountReceivedFor(a));
+  saveData();
+  renderHistory();
+  renderOutstanding();
+  showToast('✅', 'Billed amount updated');
+}
+
+function fixAllMismatchedPayments() {
+  const mismatches = findMismatchedPayments();
+  if (!mismatches.length) return;
+  const ok = confirm(
+    'Update the billed amount on all ' + mismatches.length + ' mismatched assignments to match what was actually received?\n\n' +
+    'Each invoice\'s total will be recalculated to match. This cannot be undone.'
+  );
+  if (!ok) return;
+  mismatches.forEach(a => adjustBilledAmount(a.id, amountReceivedFor(a)));
+  saveData();
+  renderHistory();
+  renderOutstanding();
+  showToast('✅', mismatches.length + ' assignments updated');
 }
 
 // Applies a payment record to one assignment (by id) in both trackedAssignments
@@ -2097,7 +2244,7 @@ function renderInvoice() {
   }).join('');
   document.getElementById('invoice-preview').innerHTML = `
     <div class="inv-hdr">
-      <div><div class="inv-logo">MÁS Professional Services<small>Medical Interpretation Services</small></div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
+      <div><div class="inv-logo">${businessInfo.businessName || businessInfo.name || 'Your Business'}${businessInfo.tagline ? '<small>'+businessInfo.tagline+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
       <div class="inv-meta"><strong>Invoice</strong>#${iN}<br>Date: ${fmtDateLong(iD)}<br>Due: ${fmtDateLong(iDu)}<br>Terms: ${terms}<br><span style="display:inline-block;margin-top:8px;padding:4px 12px;background:var(--teal);color:white;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em">PENDING</span></div>
     </div>
     <div class="inv-body">
@@ -2116,7 +2263,7 @@ function renderInvoice() {
       </div>
       ${notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${notes}</div>` : ''}
     </div>
-    <div class="inv-foot"><div class="inv-foot-note">MÁS Professional Services · ${businessInfo.name}</div><div class="inv-foot-note">Thank you for your business.</div></div>`;
+    <div class="inv-foot"><div class="inv-foot-note">${businessInfo.businessName || businessInfo.name || ''}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>`;
 }
 
 function deleteInvoice(historyId) {
@@ -2124,11 +2271,35 @@ function deleteInvoice(historyId) {
   if (!h) return;
 
   const hasAssignments = h.snapshot && h.snapshot.length > 0;
-  const ok = confirm(
-    'Delete invoice ' + h.num + ' for ' + h.client + ' ($' + h.total.toFixed(2) + ')?\n\n' +
-    (hasAssignments ? 'The ' + h.snapshot.length + ' assignment(s) on it will be returned to "Logged" status so you can re-invoice them.\n\n' : '') +
-    'This cannot be undone.'
-  );
+
+  // Check whether deleting would also wipe out any payment data already
+  // recorded against these assignments — that's a much bigger deal than just
+  // reverting status, so it needs its own explicit, impossible-to-miss warning
+  // rather than being buried in the generic "returns to Logged" message.
+  let paymentAtRisk = 0;
+  let assignmentsWithPayment = 0;
+  if (hasAssignments) {
+    h.snapshot.forEach(s => {
+      const live = trackedAssignments.find(t => t.id === s.id);
+      const received = amountReceivedFor(live);
+      if (received > 0) {
+        paymentAtRisk += received;
+        assignmentsWithPayment++;
+      }
+    });
+  }
+
+  let warning = 'Delete invoice ' + h.num + ' for ' + h.client + ' ($' + h.total.toFixed(2) + ')?\n\n';
+  if (paymentAtRisk > 0) {
+    warning += '⚠️ WARNING: ' + assignmentsWithPayment + ' assignment' + (assignmentsWithPayment === 1 ? '' : 's') +
+      ' on this invoice ' + (assignmentsWithPayment === 1 ? 'has' : 'have') + ' a recorded payment totaling $' + paymentAtRisk.toFixed(2) +
+      '. Deleting this invoice will PERMANENTLY ERASE that payment record (amount, date, method, reference) — not just the invoice.\n\n' +
+      'If you need to keep track of that payment, note it down before continuing.\n\n';
+  }
+  warning += (hasAssignments ? 'The ' + h.snapshot.length + ' assignment(s) on it will be returned to "Logged" status so you can re-invoice them.\n\n' : '') +
+    'This cannot be undone.';
+
+  const ok = confirm(warning);
   if (!ok) return;
 
   // Return assignments to logged status so they can be re-invoiced
@@ -2174,7 +2345,7 @@ function reprintInvoice(historyId) {
 
   document.getElementById('reprint-invoice-preview').innerHTML = `
     <div class="inv-hdr">
-      <div><div class="inv-logo">MÁS Professional Services<small>Medical Interpretation Services</small></div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
+      <div><div class="inv-logo">${businessInfo.businessName || businessInfo.name || 'Your Business'}${businessInfo.tagline ? '<small>'+businessInfo.tagline+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
       <div class="inv-meta"><strong>Invoice</strong>#${h.num}<br>Date: ${fmtDateLong(h.date)}<br>Due: ${h.dueDate ? fmtDateLong(h.dueDate) : '—'}<br>Terms: ${h.terms || 'Net 30'}<br>${statusBadgeHtml}</div>
     </div>
     <div class="inv-body">
@@ -2193,7 +2364,7 @@ function reprintInvoice(historyId) {
       </div>
       ${h.notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${h.notes}</div>` : ''}
     </div>
-    <div class="inv-foot"><div class="inv-foot-note">MÁS Professional Services · ${businessInfo.name}</div><div class="inv-foot-note">Thank you for your business.</div></div>`;
+    <div class="inv-foot"><div class="inv-foot-note">${businessInfo.businessName || businessInfo.name || ''}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>`;
 
   document.getElementById('reprint-modal').style.display = 'flex';
 }
@@ -2225,15 +2396,14 @@ function openEmailModal(historyId) {
 
   document.getElementById('email-history-id').value = historyId;
   document.getElementById('email-to').value = h.clientEmail || '';
-  document.getElementById('email-subject').value = `Invoice ${h.num} from ${businessInfo.name} — $${h.total.toFixed(2)}`;
+  document.getElementById('email-subject').value = `Invoice ${h.num} from ${businessInfo.businessName || businessInfo.name} — $${h.total.toFixed(2)}`;
   document.getElementById('email-body').value =
 `Hi,
 
 Please find attached invoice ${h.num} for interpretation services, totaling $${h.total.toFixed(2)}.
 
 ${h.notes ? h.notes + '\n\n' : ''}Thank you,
-${businessInfo.name}
-MÁS Professional Services`;
+${businessInfo.name}${businessInfo.businessName ? '\n' + businessInfo.businessName : ''}`;
 
   // Show warning if Gmail isn't connected
   const gmailWarning = document.getElementById('email-gmail-warning');
@@ -2280,7 +2450,7 @@ function generateInvoicePdfForEmail(h) {
   container.style.cssText = 'position:fixed;left:-9999px;top:0;width:760px;background:white;';
   container.innerHTML = `<div class="inv-wrap">
     <div class="inv-hdr">
-      <div><div class="inv-logo">MÁS Professional Services<small>Medical Interpretation Services</small></div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
+      <div><div class="inv-logo">${businessInfo.businessName || businessInfo.name || 'Your Business'}${businessInfo.tagline ? '<small>'+businessInfo.tagline+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
       <div class="inv-meta"><strong>Invoice</strong>#${h.num}<br>Date: ${fmtDateLong(h.date)}<br>Due: ${h.dueDate ? fmtDateLong(h.dueDate) : '—'}<br>Terms: ${h.terms || 'Net 30'}</div>
     </div>
     <div class="inv-body">
@@ -2299,7 +2469,7 @@ function generateInvoicePdfForEmail(h) {
       </div>
       ${h.notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${h.notes}</div>` : ''}
     </div>
-    <div class="inv-foot"><div class="inv-foot-note">MÁS Professional Services · ${businessInfo.name}</div><div class="inv-foot-note">Thank you for your business.</div></div>
+    <div class="inv-foot"><div class="inv-foot-note">${businessInfo.businessName || businessInfo.name || ''}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>
   </div>`;
   document.body.appendChild(container);
 
@@ -2485,9 +2655,12 @@ function markSentAndEmail() {
 }
 
 function openSettingsModal() {
+  document.getElementById('set-business-name').value = businessInfo.businessName || '';
+  document.getElementById('set-tagline').value = businessInfo.tagline || '';
   document.getElementById('set-name').value = businessInfo.name || '';
   document.getElementById('set-addr1').value = businessInfo.addr1 || '';
   document.getElementById('set-addr2').value = businessInfo.addr2 || '';
+  document.getElementById('set-home-address').value = businessInfo.homeAddress || '';
   const lastBackup = localStorage.getItem('mas_last_backup');
   const el = document.getElementById('backup-last-saved');
   el.textContent = lastBackup ? 'Last manual backup: ' + new Date(lastBackup).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : 'No manual backup downloaded yet.';
@@ -2510,9 +2683,12 @@ function openSettingsModal() {
 
 function saveSettings() {
   businessInfo = {
-    name: document.getElementById('set-name').value.trim() || 'Claudia Marroquin',
+    businessName: document.getElementById('set-business-name').value.trim(),
+    tagline: document.getElementById('set-tagline').value.trim(),
+    name: document.getElementById('set-name').value.trim(),
     addr1: document.getElementById('set-addr1').value.trim(),
-    addr2: document.getElementById('set-addr2').value.trim()
+    addr2: document.getElementById('set-addr2').value.trim(),
+    homeAddress: document.getElementById('set-home-address').value.trim()
   };
   saveData();
   closeModal('settings-modal');
@@ -2558,7 +2734,7 @@ function restoreBackup(event) {
       return;
     }
     if (data.backupType !== 'mas-invoices-backup') {
-      showToast('⚠️', 'That file is not a MÁS backup file');
+      showToast('⚠️', 'That file is not a Novium backup file');
       event.target.value = '';
       return;
     }
@@ -2704,6 +2880,8 @@ function renderHistory() {
   const el = document.getElementById('history-list');
   const filterVal = document.getElementById('pay-filter')?.value || 'all';
   const summaryBar = document.getElementById('pay-summary-bar');
+
+  renderMismatchBanner();
 
   if (!history.length) {
     el.innerHTML = '<div class="empty"><div class="empty-icon">📁</div><h3>No invoices yet</h3><p>Sent invoices appear here.</p></div>';
@@ -2896,27 +3074,38 @@ function renderInvoiceAssignmentRows(h) {
     const paid = isPaid(a);
     const partial = isPartiallyPaid(a);
     const received = amountReceivedFor(a);
-    const pill = paid
+    // A "Paid" assignment where the actual received amount doesn't match what was
+    // billed (an overpayment, most commonly) used to show ONLY the billed total
+    // with a plain green "Paid" pill — the fact that a different amount actually
+    // came in was invisible anywhere in the UI unless you reopened the payment
+    // editor. Now it's called out explicitly so there's no silent mismatch.
+    const overOrUnderPaid = paid && Math.abs(received - a.total) > PAID_EPSILON;
+    const pill = overOrUnderPaid
+      ? `<span class="badge badge-paid">✅ Paid ($${received.toFixed(2)})</span>`
+      : paid
       ? `<span class="badge badge-paid">✅ Paid</span>`
       : partial
       ? `<span class="badge badge-partial">◐ $${received.toFixed(2)} of $${a.total.toFixed(2)}</span>`
       : `<span class="badge badge-unpaid">⏳ Unpaid</span>`;
     const actionBtn = paid
-      ? `<button class="btn btn-ghost btn-xs" onclick="unmarkAssignmentPaid('${a.id}')">Undo</button>`
+      ? `<button class="btn btn-ghost btn-xs" onclick="openMarkPaidModal('single','${a.id}')">Edit</button> <button class="btn btn-ghost btn-xs" onclick="unmarkAssignmentPaid('${a.id}')">Undo</button>`
       : partial
       ? `<button class="btn btn-outline btn-xs" onclick="openMarkPaidModal('single','${a.id}')">Edit</button> <button class="btn btn-ghost btn-xs" onclick="unmarkAssignmentPaid('${a.id}')">Undo</button>`
       : `<button class="btn btn-teal btn-xs" onclick="openMarkPaidModal('single','${a.id}')">Mark paid</button>`;
     const payDetail = a.payment
-      ? `<div style="font-size:11px;color:var(--ink3);margin-top:2px;">${a.payment.method}${a.payment.reference ? ' · Ref ' + a.payment.reference : ''} · ${fmtDateShort(a.payment.date)}${a.payment.note ? ' · ' + a.payment.note : ''}</div>`
+      ? `<div style="font-size:11px;color:var(--ink3);margin-top:2px;">${a.payment.method}${a.payment.reference ? ' · Ref ' + a.payment.reference : ''} · ${fmtDateShort(a.payment.date)}${a.payment.note ? ' · ' + a.payment.note : ''}${overOrUnderPaid ? ' · <strong style="color:var(--teal);">Received $' + received.toFixed(2) + ' vs billed $' + a.total.toFixed(2) + '</strong>' : ''}</div>`
       : '';
     return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--canvas);font-size:12px;">
       <div style="flex:1;min-width:0;">
         <div style="font-weight:500;">${fmtDateShort(a.date)} · ${a.patientName} <span style="color:var(--ink3);font-weight:400;">— ${a.type}</span></div>
         ${payDetail}
       </div>
-      <div style="font-weight:600;white-space:nowrap;">$${a.total.toFixed(2)}</div>
+      <div style="text-align:right;">
+        <div style="font-weight:600;white-space:nowrap;">$${a.total.toFixed(2)}</div>
+        ${overOrUnderPaid ? `<div style="font-size:10px;color:var(--teal);white-space:nowrap;">billed — $${received.toFixed(2)} received</div>` : ''}
+      </div>
       <div>${pill}</div>
-      <div style="display:flex;gap:4px;">${actionBtn}</div>
+      <div>${actionBtn}</div>
     </div>`;
   }).join('');
 }
@@ -3110,6 +3299,108 @@ function jumpToOutstandingAgency() {
   setTimeout(() => { target.style.boxShadow = ''; }, 1500);
 }
 
+// ── MILEAGE LOG ─────────────────────────────────────────────
+// Lists every tracked assignment with miles > 0 — useful both to reconcile
+// what's actually been billed for mileage, and as a standalone record for
+// your own purposes (e.g. mileage deductions), since those aren't always
+// the same number your agencies pay you for.
+function getMileageEntries() {
+  return trackedAssignments
+    .filter(a => (a.miles || 0) > 0)
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function populateMileageFilters(entries) {
+  const monthSel = document.getElementById('mileage-month-filter');
+  const clientSel = document.getElementById('mileage-client-filter');
+  const currentMonth = monthSel.value;
+  const currentClient = clientSel.value;
+
+  const months = Array.from(new Set(entries.map(a => (a.date || '').slice(0, 7)))).sort().reverse();
+  monthSel.innerHTML = '<option value="all">All time</option>' +
+    months.map(m => `<option value="${m}">${monthLabelFor(m)}</option>`).join('');
+  if (months.includes(currentMonth)) monthSel.value = currentMonth;
+
+  const clients = Array.from(new Set(entries.map(a => a.clientName))).sort();
+  clientSel.innerHTML = '<option value="all">All agencies</option>' +
+    clients.map(c => `<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('');
+  if (clients.includes(currentClient)) clientSel.value = currentClient;
+}
+
+function renderMileageLog() {
+  const listEl = document.getElementById('mileage-list');
+  const summaryEl = document.getElementById('mileage-summary');
+  if (!listEl) return;
+
+  const allEntries = getMileageEntries();
+  populateMileageFilters(allEntries);
+
+  const monthFilter = document.getElementById('mileage-month-filter').value;
+  const clientFilter = document.getElementById('mileage-client-filter').value;
+  let entries = allEntries;
+  if (monthFilter !== 'all') entries = entries.filter(a => (a.date || '').slice(0, 7) === monthFilter);
+  if (clientFilter !== 'all') entries = entries.filter(a => a.clientName === clientFilter);
+
+  if (!entries.length) {
+    listEl.innerHTML = '<div class="empty"><div class="empty-icon">🗺️</div><h3>No mileage logged yet</h3><p>Miles entered on assignments will show up here.</p></div>';
+    summaryEl.style.display = 'none';
+    return;
+  }
+
+  const totalMiles = entries.reduce((s, a) => s + (a.miles || 0), 0);
+  const totalBilled = entries.reduce((s, a) => s + (a.mileageAmt || 0), 0);
+  summaryEl.style.display = 'block';
+  document.getElementById('mi-count').textContent = entries.length;
+  document.getElementById('mi-miles').textContent = totalMiles % 1 === 0 ? totalMiles : totalMiles.toFixed(1);
+  document.getElementById('mi-billed').textContent = '$' + totalBilled.toFixed(2);
+
+  let html = `<div style="display:grid;grid-template-columns:90px 1fr 1fr 70px 90px 90px;gap:10px;padding:6px 16px 10px;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);">
+    <span>Date</span><span>Agency</span><span>Location</span><span style="text-align:right;">Miles</span><span style="text-align:right;">Rate</span><span style="text-align:right;">Billed</span>
+  </div>`;
+  entries.forEach(a => {
+    html += `<div class="hist-row-new" style="grid-template-columns:90px 1fr 1fr 70px 90px 90px;">
+      <div style="font-size:12px;">${fmtDateShort(a.date)}</div>
+      <div style="font-size:13px;">${a.clientName}<div style="font-size:11px;color:var(--ink3);">${a.patientName}</div></div>
+      <div style="font-size:12px;color:var(--ink3);">${a.location || '—'}</div>
+      <div style="text-align:right;font-size:13px;">${a.miles}</div>
+      <div style="text-align:right;font-size:12px;color:var(--ink3);">${a.mileageRate > 0 ? '$'+a.mileageRate+'/mi' : '—'}</div>
+      <div style="text-align:right;font-weight:600;font-size:13px;">${a.mileageAmt > 0 ? '$'+a.mileageAmt.toFixed(2) : '—'}</div>
+    </div>`;
+  });
+  listEl.innerHTML = html;
+}
+
+function exportMileageCSV() {
+  const allEntries = getMileageEntries();
+  const monthFilter = document.getElementById('mileage-month-filter').value;
+  const clientFilter = document.getElementById('mileage-client-filter').value;
+  let entries = allEntries;
+  if (monthFilter !== 'all') entries = entries.filter(a => (a.date || '').slice(0, 7) === monthFilter);
+  if (clientFilter !== 'all') entries = entries.filter(a => a.clientName === clientFilter);
+
+  if (!entries.length) { showToast('⚠️', 'No mileage entries to export'); return; }
+
+  const rows = [['Date', 'Agency', 'Patient', 'Location', 'Miles', 'Rate', 'Billed']];
+  entries.forEach(a => {
+    rows.push([a.date, a.clientName, a.patientName, a.location || '', a.miles, a.mileageRate || 0, (a.mileageAmt || 0).toFixed(2)]);
+  });
+  const escapeCsv = (v) => {
+    const s = String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const csvContent = rows.map(r => r.map(escapeCsv).join(',')).join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `mileage-log-${todayStr()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('✅', 'Mileage log exported');
+}
+
 // ── DEMO ──────────────────────────────────────────────────
 function loadDemo() {
   // Safety check: if there are real saved clients, warn before switching to demo
@@ -3169,10 +3460,11 @@ function hideDemoBanner() {
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  const map = { 'page-invoice': 0, 'page-clients': 1, 'page-history': 2, 'page-outstanding': 3 };
+  const map = { 'page-invoice': 0, 'page-clients': 1, 'page-history': 2, 'page-outstanding': 3, 'page-mileage': 4 };
   document.querySelectorAll('.hdr-tab').forEach((t, i) => t.classList.toggle('active', i === map[id]));
   if (id === 'page-outstanding') renderOutstanding();
   if (id === 'page-history') renderHistory();
+  if (id === 'page-mileage') renderMileageLog();
 }
 function showPanel(id) { ['panel-connect','panel-assignments','panel-invoice'].forEach(p => { const el = document.getElementById(p); if (el) el.style.display = p === id ? 'block' : 'none'; }); }
 function setStep(n) { [1,2,3].forEach(i => { const s = document.getElementById('stp'+i); const sn = document.getElementById('sn'+i); s.classList.remove('active','done'); if (i < n) { s.classList.add('done'); sn.textContent = '✓'; } else if (i === n) { s.classList.add('active'); sn.textContent = i; } else sn.textContent = i; }); }
@@ -3300,7 +3592,7 @@ function showTabBlockBanner() {
   blocker.innerHTML = `<div style="background:white;border-radius:16px;padding:36px;max-width:420px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3);">
     <div style="font-size:48px;margin-bottom:16px;">⚠️</div>
     <div style="font-family:'Fraunces',serif;font-size:22px;font-weight:400;margin-bottom:12px;">App already open</div>
-    <div style="font-size:13px;color:#706b63;line-height:1.7;margin-bottom:24px;">MÁS is already open in another tab or window. To protect your data from being overwritten, please use only one tab at a time.<br><br>Close the other tab first, then this page will automatically resume.</div>
+    <div style="font-size:13px;color:#706b63;line-height:1.7;margin-bottom:24px;">Novium is already open in another tab or window. To protect your data from being overwritten, please use only one tab at a time.<br><br>Close the other tab first, then this page will automatically resume.</div>
     <button class="btn btn-outline" onclick="window.close()">Close this tab</button>
   </div>`;
   document.body.appendChild(blocker);
