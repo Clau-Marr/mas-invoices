@@ -1997,12 +1997,25 @@ function renderAssignments() {
   const el = document.getElementById('assignments-list');
   const sb = document.getElementById('sum-bar-wrap');
   if (!assignments.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><h3>No assignments yet</h3><p>Import from Google Calendar or add manually.</p></div>'; sb.style.display = 'none'; return; }
+
+  // Flag possible duplicates within this draft — same patient + date + time,
+  // regardless of client, since that combination essentially can't happen twice
+  // for real (the classic mistake this catches: the same calendar event getting
+  // imported or added twice before being sent).
+  const dupeKeyOf = (a) => normalizeForMatch(a.patientName) + '|' + a.date + '|' + a.start + '|' + a.end;
+  const dupeCounts = {};
+  assignments.forEach(a => { const k = dupeKeyOf(a); dupeCounts[k] = (dupeCounts[k] || 0) + 1; });
+
   el.innerHTML = assignments.map(a => {
     const st = getStatusLabel(a.status);
-    return `<div class="assign-row selected" id="ar-${a.id}">
+    const isDupe = dupeCounts[dupeKeyOf(a)] > 1;
+    const dupeWarning = isDupe
+      ? `<div style="font-size:11px;color:var(--red);font-weight:600;margin-top:2px;">⚠ Possible duplicate — another assignment in this draft has the same patient, date, and time</div>`
+      : '';
+    return `<div class="assign-row selected" id="ar-${a.id}" style="${isDupe ? 'background:var(--red-light);border-color:#f5c5c0;' : ''}">
       <input type="checkbox" id="chk-${a.id}" checked onchange="document.getElementById('ar-${a.id}').classList.toggle('selected',this.checked);updateSummary()">
       <div style="font-size:12px;font-weight:600;color:var(--ink2);">${fmtDateShort(a.date)}</div>
-      <div><div style="font-weight:500">${a.clientName} — <span class="badge ${typeTag(a.type)}">${a.type}</span>${visitStatusBadge(a.visitStatus)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.patientName}${a.po ? ' · PO: '+a.po : ''} · ${a.location||'—'}</div></div>
+      <div><div style="font-weight:500">${a.clientName} — <span class="badge ${typeTag(a.type)}">${a.type}</span>${visitStatusBadge(a.visitStatus)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.patientName}${a.po ? ' · PO: '+a.po : ''} · ${a.location||'—'}</div>${dupeWarning}</div>
       <div style="font-size:12px;color:var(--ink3)">${fmtTime(a.start)}–${fmtTime(a.end)}</div>
       <div style="font-size:12px;color:var(--ink3)">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}h<br><span style="font-size:11px">$${a.rate}/hr</span></div>
       <div style="font-size:12px;color:var(--ink3)">${a.mileageAmt > 0 ? '$'+a.mileageAmt.toFixed(2) : '—'}</div>
@@ -2202,6 +2215,29 @@ function generateBatchInvoice() {
 function goToStep3() {
   const sel = getSelected();
   if (!sel.length) { showToast('⚠️', 'Select at least one assignment'); return; }
+
+  // Same duplicate check as the assignments list, but specifically on what's
+  // actually selected for THIS invoice — a last checkpoint before it's sent,
+  // since accidentally billing the same real visit twice on one invoice is
+  // the exact mistake this is meant to catch.
+  const dupeKeyOf = (a) => normalizeForMatch(a.patientName) + '|' + a.date + '|' + a.start + '|' + a.end;
+  const seenKeys = {};
+  const dupeNames = [];
+  sel.forEach(a => {
+    const k = dupeKeyOf(a);
+    if (seenKeys[k]) dupeNames.push(a.patientName + ' on ' + fmtDateShort(a.date));
+    seenKeys[k] = true;
+  });
+  if (dupeNames.length) {
+    const ok = confirm(
+      '⚠️ Possible duplicate assignment(s) selected for this invoice:\n\n' +
+      dupeNames.join('\n') +
+      '\n\nSame patient, date, and time appears more than once — this usually means the same real visit got added twice by mistake.\n\n' +
+      'Continue anyway?'
+    );
+    if (!ok) return;
+  }
+
   showPanel('panel-invoice'); setStep(3);
   const top = sel[0];
   if (!document.getElementById('inv-client').value) document.getElementById('inv-client').value = top.clientName;
