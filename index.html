@@ -758,7 +758,7 @@ let editingClientId = null;
 let accessToken = null;
 let tokenClient = null;
 let currentStatusAssignId = null;
-let driveBackupFileId = null; // Google Drive file ID for auto-backup
+let driveBackupFileIds = []; // Rotating set of Drive backup files: [{id, createdAt}, ...], oldest first, capped at 3
 // businessName/tagline are what's PRINTED on invoices — each user's own business,
 // not the app's own branding. name/addr1/addr2 are the contact details shown below
 // it. Blank by default so a fresh install doesn't inherit anyone else's business —
@@ -798,54 +798,52 @@ function saveData() {
   if (accessToken) saveToDrive();
 }
 
+const MAX_DRIVE_BACKUPS = 3;
+
 let driveBackupTimeout = null;
 function saveToDrive() {
   // Debounce — wait 3 seconds after last change before writing to Drive
   clearTimeout(driveBackupTimeout);
   driveBackupTimeout = setTimeout(() => {
+    const nowIso = new Date().toISOString();
     const backup = {
       backupType: 'mas-invoices-backup',
       backupVersion: 1,
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso,
       clients, history, invCounter, trackedAssignments, businessInfo, manualSentOverrides
     };
     const content = JSON.stringify(backup, null, 2);
+    // Each backup is its own timestamped file rather than one file overwritten
+    // forever — that way there's always a recent point to roll back to if
+    // something ever goes wrong (a bug, a bad restore, etc.), not just
+    // whatever the single most recent save happened to contain.
+    const filename = 'Novium-backup-' + nowIso.replace(/[:.]/g, '-') + '.json';
 
-    if (driveBackupFileId) {
-      // Update existing file
-      fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveBackupFileId}?uploadType=media`, {
-        method: 'PATCH',
-        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-        body: content
-      }).then(r => {
-        if (!r.ok) {
-          driveBackupFileId = null;
-          localStorage.removeItem('mas_drive_file_id');
-          saveToDrive();
-        } else {
-          showDriveSaveIndicator();
+    findOrCreateDriveFolder().then(folderId => {
+      const metadata = { name: filename, parents: folderId ? [folderId] : [], mimeType: 'application/json' };
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      form.append('file', new Blob([content], { type: 'application/json' }));
+      return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken },
+        body: form
+      });
+    }).then(r => r.json()).then(data => {
+      if (data.id) {
+        driveBackupFileIds.push({ id: data.id, createdAt: nowIso });
+        // Prune anything beyond the cap, oldest first
+        while (driveBackupFileIds.length > MAX_DRIVE_BACKUPS) {
+          const oldest = driveBackupFileIds.shift();
+          fetch('https://www.googleapis.com/drive/v3/files/' + oldest.id, {
+            method: 'DELETE',
+            headers: { Authorization: 'Bearer ' + accessToken }
+          }).catch(e => console.log('Drive prune error:', e));
         }
-      }).catch(e => console.log('Drive update error:', e));
-    } else {
-      // Create new file in Novium Backups folder
-      findOrCreateDriveFolder().then(folderId => {
-        const metadata = { name: 'MAS-auto-backup.json', parents: folderId ? [folderId] : [], mimeType: 'application/json' };
-        const form = new FormData();
-        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-        form.append('file', new Blob([content], { type: 'application/json' }));
-        return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + accessToken },
-          body: form
-        });
-      }).then(r => r.json()).then(data => {
-        if (data.id) {
-          driveBackupFileId = data.id;
-          localStorage.setItem('mas_drive_file_id', data.id);
-          showDriveSaveIndicator();
-        }
-      }).catch(e => console.log('Drive create error:', e));
-    }
+        localStorage.setItem('mas_drive_backup_ids', JSON.stringify(driveBackupFileIds));
+        showDriveSaveIndicator();
+      }
+    }).catch(e => console.log('Drive create error:', e));
   }, 3000);
 }
 
@@ -881,7 +879,8 @@ function loadData() {
     const n = localStorage.getItem('mas_counter');
     const t = localStorage.getItem('mas_tracked');
     const b = localStorage.getItem('mas_business_info');
-    const d = localStorage.getItem('mas_drive_file_id');
+    const legacyD = localStorage.getItem('mas_drive_file_id'); // pre-rotation single-file id, if any
+    const dIds = localStorage.getItem('mas_drive_backup_ids');
     const mo = localStorage.getItem('mas_manual_overrides');
     if (c) clients = JSON.parse(c);
     if (h) history = JSON.parse(h);
@@ -907,7 +906,13 @@ function loadData() {
       businessInfo.tagline = 'Medical Interpretation Services';
     }
     if (mo) manualSentOverrides = JSON.parse(mo);
-    if (d) driveBackupFileId = d;
+    if (dIds) {
+      driveBackupFileIds = JSON.parse(dIds);
+    } else if (legacyD) {
+      // Upgrading from before rotation existed — fold the one existing backup
+      // file into the new array so it's accounted for going forward.
+      driveBackupFileIds = [{ id: legacyD, createdAt: new Date().toISOString() }];
+    }
   } catch(e) { console.log('Load error:', e); }
 }
 
@@ -2706,8 +2711,11 @@ function openSettingsModal() {
     if (!accessToken) {
       driveEl.innerHTML = '☁️ <strong>Drive auto-save:</strong> Connect Google Calendar to enable automatic Drive backup.';
       driveEl.style.color = 'var(--ink3)';
-    } else if (driveBackupFileId) {
-      driveEl.innerHTML = '✅ <strong>Drive auto-save is ON</strong> — your data saves automatically to Google Drive every time you make a change.';
+    } else if (driveBackupFileIds.length) {
+      const recent = driveBackupFileIds.slice().reverse()
+        .map(b => new Date(b.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }))
+        .map(t => `<div style="font-size:11px;color:var(--ink3);margin-top:2px;">• ${t}</div>`).join('');
+      driveEl.innerHTML = `✅ <strong>Drive auto-save is ON</strong> — keeping your last ${driveBackupFileIds.length} backup${driveBackupFileIds.length === 1 ? '' : 's'} in Drive.${recent}`;
       driveEl.style.color = 'var(--green)';
     } else {
       driveEl.innerHTML = '🔄 <strong>Drive auto-save:</strong> Will create a backup file in your Drive on next save.';
