@@ -1237,9 +1237,10 @@ function renderImportedEvents() {
 
     // Already submitted or paid (auto-detected), OR manually marked by the user as
     // a fallback for cases where auto-matching can't find it. Either way, checkbox
-    // defaults unchecked (not disabled) so it can still be re-added on purpose if
-    // you ever need to correct/resend something. Manual marks are purely a visual
-    // note — they never touch trackedAssignments, invoices, or totals.
+    // now defaults UNCHECKED regardless of status, so nothing gets added to an
+    // invoice by accident — the user opts in explicitly for every assignment,
+    // every time, whether via individual clicks or "Select all" (which itself
+    // only checks what's currently visible under any active search filter).
     const autoDone = ev.alreadyStatus === 'invoice_submitted' || ev.alreadyStatus === 'paid';
     const manuallyDone = manualSentOverrides.includes(ev.id);
     const alreadyDone = autoDone || manuallyDone;
@@ -1256,8 +1257,8 @@ function renderImportedEvents() {
           : `<button class="btn btn-ghost btn-xs" onclick="toggleManualSent('${ev.id}')" title="Mark as already sent — visual only, doesn't touch invoices">✓ Mark sent</button>`)
       : '';
 
-    return `<div class="import-event ${hasError ? 'error' : alreadyDone ? '' : 'checked'}" id="iev-${ev.id}" style="${alreadyDone ? 'opacity:.55;' : ''}">
-      <input type="checkbox" id="ievchk-${ev.id}" ${hasError ? 'disabled' : ''} ${!hasError && !alreadyDone ? 'checked' : ''} style="width:15px;height:15px;accent-color:var(--teal);" onchange="this.closest('.import-event').classList.toggle('checked',this.checked)">
+    return `<div class="import-event ${hasError ? 'error' : ''}" id="iev-${ev.id}" style="${alreadyDone ? 'opacity:.55;' : ''}">
+      <input type="checkbox" id="ievchk-${ev.id}" ${hasError ? 'disabled' : ''} style="width:15px;height:15px;accent-color:var(--teal);" onchange="this.closest('.import-event').classList.toggle('checked',this.checked)">
       <div>
         <div style="font-weight:500;${alreadyDone ? 'text-decoration:line-through;' : ''}">${ev.clientName} — ${ev.assignType}${doneBadge}</div>
         <div style="font-size:12px;color:var(--ink3);margin-top:2px;">${fmtDateShort(ev.date)} · ${ev.startTime ? fmtTime(ev.startTime) : '?'}–${ev.endTime ? fmtTime(ev.endTime) : '?'} · ${ev.patientName}${ev.po ? ' · PO: '+ev.po : ''} · ${ev.location||'—'}${ev.miles > 0 ? ' · '+ev.miles+' mi' : ''}${hasError ? '<br><span style="color:var(--red);font-weight:500">⚠ '+errMsg+'</span>' : ''}</div>
@@ -1294,7 +1295,12 @@ function filterEvents() {
   });
 }
 
-function selAllEv() { importedEvents.forEach(ev => { const alreadyDone = ev.alreadyStatus === 'invoice_submitted' || ev.alreadyStatus === 'paid' || manualSentOverrides.includes(ev.id); const c = document.getElementById('ievchk-'+ev.id); if (c && !c.disabled && !alreadyDone) { c.checked = true; document.getElementById('iev-'+ev.id).classList.add('checked'); } }); }
+// "Select all" now only checks boxes for entries that are currently VISIBLE
+// (i.e. not hidden by an active search filter) — so if you've searched for one
+// agency first, Select all only grabs that agency's assignments rather than
+// silently re-selecting everything that was imported, including entries
+// scrolled out of view by the filter.
+function selAllEv() { importedEvents.forEach(ev => { const alreadyDone = ev.alreadyStatus === 'invoice_submitted' || ev.alreadyStatus === 'paid' || manualSentOverrides.includes(ev.id); const row = document.getElementById('iev-'+ev.id); const c = document.getElementById('ievchk-'+ev.id); const isVisible = row && row.style.display !== 'none'; if (c && !c.disabled && !alreadyDone && isVisible) { c.checked = true; row.classList.add('checked'); } }); }
 function selNoneEv() { importedEvents.forEach(ev => { const c = document.getElementById('ievchk-'+ev.id); if (c) { c.checked = false; document.getElementById('iev-'+ev.id).classList.remove('checked'); } }); }
 
 function importSelected() {
