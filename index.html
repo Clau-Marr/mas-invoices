@@ -847,15 +847,30 @@ function saveToDrive() {
   }, 3000);
 }
 
+// Folder name used for BOTH the search query and folder creation below.
+// Previously these were out of sync (searched for the old "MÁS Backups" name
+// but created new folders named "Novium Backups"), so the search never found
+// a match and a brand-new folder got created on every single save. Keeping
+// one constant here guarantees search and create always agree, so this
+// reliably finds and reuses the same folder going forward. If a legacy
+// "MÁS Backups" folder still exists in someone's Drive from before this fix,
+// it's simply left alone — new backups just go into "Novium Backups" instead.
+const DRIVE_BACKUP_FOLDER_NAME = 'Novium Backups';
+
 function findOrCreateDriveFolder() {
-  return fetch("https://www.googleapis.com/drive/v3/files?q=name%3D'MA%CC%81S%20Backups'%20and%20mimeType%3D'application%2Fvnd.google-apps.folder'%20and%20trashed%3Dfalse&fields=files(id)", {
+  const q = `name='${DRIVE_BACKUP_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  return fetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id,createdTime)&orderBy=createdTime', {
     headers: { Authorization: 'Bearer ' + accessToken }
   }).then(r => r.json()).then(data => {
+    // If more than one matching folder somehow exists (e.g. leftover duplicates
+    // from before this fix), always reuse the OLDEST one going forward, so
+    // everything consolidates into a single folder rather than picking a
+    // different one at random each time.
     if (data.files && data.files.length > 0) return data.files[0].id;
     return fetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Novium Backups', mimeType: 'application/vnd.google-apps.folder' })
+      body: JSON.stringify({ name: DRIVE_BACKUP_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
     }).then(r => r.json()).then(f => f.id);
   }).catch(() => null);
 }
