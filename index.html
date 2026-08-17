@@ -857,9 +857,21 @@ function saveToDrive() {
 // it's simply left alone — new backups just go into "Novium Backups" instead.
 const DRIVE_BACKUP_FOLDER_NAME = 'Novium Backups';
 
+// Caches the in-flight (or already-resolved) folder lookup so that if two
+// saves happen to fire close together, the SECOND one reuses the SAME pending
+// request instead of independently searching-then-creating its own folder.
+// That overlap — both calls searching before either had finished creating —
+// was exactly how two "Novium Backups" folders ended up getting created
+// minutes apart even after the name mismatch was fixed. Caching the promise
+// itself (not just the eventual id) closes that window, since every caller
+// during the lookup shares one outcome. Cleared on disconnect so a fresh
+// lookup happens after reconnecting.
+let driveFolderLookup = null;
+
 function findOrCreateDriveFolder() {
+  if (driveFolderLookup) return driveFolderLookup;
   const q = `name='${DRIVE_BACKUP_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-  return fetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id,createdTime)&orderBy=createdTime', {
+  driveFolderLookup = fetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id,createdTime)&orderBy=createdTime', {
     headers: { Authorization: 'Bearer ' + accessToken }
   }).then(r => r.json()).then(data => {
     // If more than one matching folder somehow exists (e.g. leftover duplicates
@@ -872,7 +884,11 @@ function findOrCreateDriveFolder() {
       headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: DRIVE_BACKUP_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
     }).then(r => r.json()).then(f => f.id);
-  }).catch(() => null);
+  }).catch(() => {
+    driveFolderLookup = null; // allow retry on next save if this attempt failed
+    return null;
+  });
+  return driveFolderLookup;
 }
 
 function showDriveSaveIndicator() {
@@ -988,6 +1004,7 @@ function fetchUserInfo() {
 
 function disconnectGoogle() {
   accessToken = null;
+  driveFolderLookup = null;
   localStorage.removeItem('mas_google_connected');
   document.getElementById('gcal-box').style.display = 'block';
   document.getElementById('gcal-connected-state').style.display = 'none';
