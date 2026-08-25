@@ -489,7 +489,6 @@ textarea{resize:vertical;min-height:70px;}
       </div>
     </div>
     <div class="fg"><label>Notes</label><input type="text" id="m-notes"></div>
-    <div class="fg full"><label>Submission link (optional)</label><input type="url" id="m-sublink" placeholder="Paste the assignment-specific link from the agency's email here"></div>
   </div>
   <div class="modal-actions">
     <button class="btn btn-ghost" onclick="closeModal('assign-modal')">Cancel</button>
@@ -1444,14 +1443,13 @@ function openAddModal(id) {
         document.getElementById('m-end').value = a.end;
         document.getElementById('m-miles').value = a.miles || 0;
         document.getElementById('m-notes').value = a.notes || '';
-        document.getElementById('m-sublink').value = a.submissionLink || '';
         document.getElementById('m-status-flag').value = a.visitStatus || '';
         calcBilling();
       }, 50);
     }
   } else {
     document.getElementById('m-date').value = todayStr();
-    ['m-patient','m-location','m-po','m-start','m-end','m-notes','m-sublink'].forEach(x => document.getElementById(x).value = '');
+    ['m-patient','m-location','m-po','m-start','m-end','m-notes'].forEach(x => document.getElementById(x).value = '');
     document.getElementById('m-miles').value = 0;
     document.getElementById('m-status-flag').value = '';
   }
@@ -1571,7 +1569,7 @@ function saveAssignment() {
     mileageRate: c.mileageRate || 0, mileageAmt: mil, total: svc + mil,
     notes: document.getElementById('m-notes').value,
     visitStatus: document.getElementById('m-status-flag').value,
-    submissionLink: document.getElementById('m-sublink').value.trim(),
+    submissionLink: existing?.submissionLink || '',
     status: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.status || initialStatus) : initialStatus,
     statusHistory: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.statusHistory || []) : [{ status: initialStatus, date: todayStr() }],
     billingFreq: c.billingFreq || 'single',
@@ -2552,7 +2550,18 @@ function generateInvoicePdfForEmail(h) {
   </div>`;
   document.body.appendChild(container);
 
-  html2canvas(container, { scale: 1.5, backgroundColor: '#ffffff' }).then(canvas => {
+  // Wait for web fonts to finish loading, then give the browser two paint
+  // cycles to settle the layout, before taking the screenshot. Capturing
+  // too early — before a font like Fraunces has loaded, or before a long
+  // note has finished wrapping onto its final number of lines — freezes the
+  // snapshot at a shorter height than the real content, cutting off
+  // whatever falls below that point (this is what caused occasional
+  // cut-off single-assignment invoices).
+  const settleFirst = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+  settleFirst
+    .then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    .then(() => html2canvas(container, { scale: 1.5, backgroundColor: '#ffffff' }))
+    .then(canvas => {
     // Use JPEG compression instead of PNG — dramatically smaller file size
     // quality: 0.85 gives good visual quality while keeping file size manageable
     const imgData = canvas.toDataURL('image/jpeg', 0.85);
