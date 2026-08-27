@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Novium — Sign In</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,400;0,600;1,300&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink:#16130f;--ink2:#3a3630;--ink3:#706b63;
+  --canvas:#f5f2ec;--canvas2:#ece8e0;--canvas3:#e0dbd0;
+  --white:#ffffff;--teal:#1a7a6e;--teal2:#22a090;--teal-light:#e6f4f2;
+  --red:#c0392b;--red-light:#fdf0ef;
+  --r:10px;--r-sm:6px;
+  --sh:0 1px 3px rgba(22,19,15,.06),0 4px 12px rgba(22,19,15,.07);
+  --sh-lg:0 8px 32px rgba(22,19,15,.13);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--canvas);color:var(--ink);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+.wrap{width:100%;max-width:400px;}
+.logo{font-family:'Fraunces',serif;font-size:26px;color:var(--ink);text-align:center;margin-bottom:6px;}
+.logo span{color:var(--teal);}
+.tagline{text-align:center;font-size:13px;color:var(--ink3);margin-bottom:32px;}
+.card{background:var(--white);border-radius:var(--r);box-shadow:var(--sh-lg);padding:32px;}
+.tabs{display:flex;gap:4px;background:var(--canvas);border-radius:var(--r-sm);padding:4px;margin-bottom:24px;}
+.tab{flex:1;padding:9px;text-align:center;border-radius:5px;font-size:13px;font-weight:500;cursor:pointer;color:var(--ink3);transition:all .18s;}
+.tab.active{background:var(--white);color:var(--ink);box-shadow:var(--sh);}
+.fg{display:flex;flex-direction:column;gap:5px;margin-bottom:16px;}
+label{font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);}
+input{padding:11px 12px;border:1.5px solid var(--canvas3);border-radius:var(--r-sm);font-family:'Inter',sans-serif;font-size:14px;color:var(--ink);background:var(--canvas);transition:border-color .18s;outline:none;width:100%;}
+input:focus{border-color:var(--teal);background:white;}
+.btn{width:100%;padding:12px;border-radius:var(--r-sm);font-family:'Inter',sans-serif;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .18s;margin-top:8px;}
+.btn-primary{background:var(--ink);color:white;}
+.btn-primary:hover{background:#2a2620;}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed;}
+.msg{font-size:13px;padding:10px 12px;border-radius:var(--r-sm);margin-bottom:16px;display:none;}
+.msg.error{background:var(--red-light);color:var(--red);display:block;}
+.msg.success{background:var(--teal-light);color:var(--teal);display:block;}
+.panel{display:none;}
+.panel.active{display:block;}
+.foot{text-align:center;font-size:12px;color:var(--ink3);margin-top:20px;}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="logo">Novi<span>um</span></div>
+  <div class="tagline">Invoicing built for interpreters</div>
+
+  <div class="card">
+    <div class="tabs">
+      <div class="tab active" id="tab-signin" onclick="switchTab('signin')">Sign In</div>
+      <div class="tab" id="tab-signup" onclick="switchTab('signup')">Create Account</div>
+    </div>
+
+    <div id="msg" class="msg"></div>
+
+    <!-- SIGN IN -->
+    <div class="panel active" id="panel-signin">
+      <div class="fg">
+        <label>Email</label>
+        <input type="email" id="signin-email" autocomplete="email">
+      </div>
+      <div class="fg">
+        <label>Password</label>
+        <input type="password" id="signin-password" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary" id="signin-btn" onclick="handleSignIn()">Sign In</button>
+    </div>
+
+    <!-- SIGN UP -->
+    <div class="panel" id="panel-signup">
+      <div class="fg">
+        <label>Email</label>
+        <input type="email" id="signup-email" autocomplete="email">
+      </div>
+      <div class="fg">
+        <label>Password</label>
+        <input type="password" id="signup-password" autocomplete="new-password" minlength="8">
+      </div>
+      <div class="fg">
+        <label>Confirm password</label>
+        <input type="password" id="signup-password-confirm" autocomplete="new-password">
+      </div>
+      <button class="btn btn-primary" id="signup-btn" onclick="handleSignUp()">Create Account</button>
+    </div>
+
+    <div class="foot" id="foot-text">Your data is private to your account and never visible to other users.</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ─────────────────────────────────────────────────────────────
+// SUPABASE CONFIG
+// Paste your Project URL and anon public key here — both are
+// safe to expose in front-end code (they are NOT secret keys;
+// Row Level Security in the database is what actually protects
+// data, not hiding these values).
+// ─────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://vgwgbpjhxugyshlezjzh.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_ORhpfM5JPtpcEy01hohzLA_dpxQ6QpB';
+
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function switchTab(which) {
+  document.getElementById('tab-signin').classList.toggle('active', which === 'signin');
+  document.getElementById('tab-signup').classList.toggle('active', which === 'signup');
+  document.getElementById('panel-signin').classList.toggle('active', which === 'signin');
+  document.getElementById('panel-signup').classList.toggle('active', which === 'signup');
+  hideMsg();
+}
+
+function showMsg(text, type) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg ' + type;
+}
+function hideMsg() {
+  const el = document.getElementById('msg');
+  el.className = 'msg';
+}
+
+async function handleSignIn() {
+  const email = document.getElementById('signin-email').value.trim();
+  const password = document.getElementById('signin-password').value;
+  if (!email || !password) { showMsg('Enter your email and password.', 'error'); return; }
+
+  const btn = document.getElementById('signin-btn');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+
+  btn.disabled = false; btn.textContent = 'Sign In';
+
+  if (error) {
+    showMsg(error.message === 'Invalid login credentials' ? 'Incorrect email or password.' : error.message, 'error');
+    return;
+  }
+  // Successful sign-in — redirect to the main app.
+  window.location.href = '/app.html';
+}
+
+async function handleSignUp() {
+  const email = document.getElementById('signup-email').value.trim();
+  const password = document.getElementById('signup-password').value;
+  const confirm = document.getElementById('signup-password-confirm').value;
+
+  if (!email || !password) { showMsg('Enter an email and password.', 'error'); return; }
+  if (password.length < 8) { showMsg('Password must be at least 8 characters.', 'error'); return; }
+  if (password !== confirm) { showMsg('Passwords do not match.', 'error'); return; }
+
+  const btn = document.getElementById('signup-btn');
+  btn.disabled = true; btn.textContent = 'Creating account…';
+
+  const { data, error } = await supabaseClient.auth.signUp({ email, password });
+
+  btn.disabled = false; btn.textContent = 'Create Account';
+
+  if (error) {
+    showMsg(error.message, 'error');
+    return;
+  }
+
+  // Supabase sends a confirmation email by default. Until that's
+  // confirmed, the user isn't fully signed in yet — so we tell them
+  // to check their inbox rather than redirecting immediately.
+  showMsg('Account created! Check your email to confirm, then sign in.', 'success');
+  switchTab('signin');
+}
+
+// If someone is already signed in (existing session), skip straight
+// to the app instead of showing the sign-in form again.
+(async () => {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session) window.location.href = '/app.html';
+})();
+</script>
+</body>
+</html>
