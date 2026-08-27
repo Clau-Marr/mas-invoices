@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Novium — Invoice &amp; Payment Tracking</title>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,400;0,600;1,300&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root {
   --ink:#16130f;--ink2:#3a3630;--ink3:#706b63;--ink4:#a8a39b;
@@ -489,6 +489,7 @@ textarea{resize:vertical;min-height:70px;}
       </div>
     </div>
     <div class="fg"><label>Notes</label><input type="text" id="m-notes"></div>
+    <div class="fg full"><label>Submission link (optional)</label><input type="url" id="m-sublink" placeholder="Paste the assignment-specific link from the agency's email here"></div>
   </div>
   <div class="modal-actions">
     <button class="btn btn-ghost" onclick="closeModal('assign-modal')">Cancel</button>
@@ -696,6 +697,35 @@ textarea{resize:vertical;min-height:70px;}
 
   <div class="divider"></div>
   <div style="margin-bottom:14px;">
+    <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Subscription</div>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5;">Choose the plan that matches how much you bill through Novium each month. You'll be taken to a secure Stripe checkout page.</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <button class="btn btn-outline btn-sm" style="justify-content:space-between;width:100%;" onclick="subscribeToPlan('starter')">
+        <span>Starter — up to $2,000/mo billed</span><span>$9.99/mo</span>
+      </button>
+      <button class="btn btn-outline btn-sm" style="justify-content:space-between;width:100%;" onclick="subscribeToPlan('growing')">
+        <span>Growing — $2,000–$6,000/mo billed</span><span>$19.99/mo</span>
+      </button>
+      <button class="btn btn-outline btn-sm" style="justify-content:space-between;width:100%;" onclick="subscribeToPlan('established')">
+        <span>Established — $6,000+/mo billed</span><span>$34.99/mo</span>
+      </button>
+    </div>
+
+    <div class="divider" style="margin:14px 0;"></div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:8px;">Optional: 1-on-1 setup call — $50/hr</div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <select id="setup-call-hours" style="width:90px;flex-shrink:0;">
+        <option value="1">1 hour</option>
+        <option value="2">2 hours</option>
+        <option value="3">3 hours</option>
+        <option value="4">4 hours</option>
+      </select>
+      <button class="btn btn-outline btn-sm" style="flex:1;" onclick="bookSetupCall()">Book call</button>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  <div style="margin-bottom:14px;">
     <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Backup &amp; restore</div>
     <div id="drive-sync-status" style="font-size:12px;margin-bottom:12px;padding:10px 14px;background:var(--canvas);border-radius:var(--r-sm);"></div>
     <div style="font-size:12px;color:var(--ink3);margin-bottom:10px;line-height:1.6;">Manual backup — download a copy to keep safe just in case.</div>
@@ -706,6 +736,12 @@ textarea{resize:vertical;min-height:70px;}
     </div>
     <div id="backup-last-saved" style="font-size:11px;color:var(--ink3);margin-top:10px;"></div>
   </div>
+
+  <div class="divider"></div>
+  <div style="margin-bottom:6px;">
+    <div style="font-weight:600;font-size:14px;margin-bottom:8px;">Account</div>
+    <button class="btn btn-outline btn-sm" onclick="signOut()">🚪 Sign out</button>
+  </div>
 </div>
 </div>
 
@@ -715,6 +751,92 @@ textarea{resize:vertical;min-height:70px;}
 // ── CONFIG ────────────────────────────────────────────────
 const CLIENT_ID = '566546508985-12fom6evof5isvjmea1nqlfm3pj82aun.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/drive.file';
+
+// ── SUPABASE CONNECTION ──────────────────────────────────
+// "supabase" here is the library loaded from the CDN script tag in <head>.
+// supabaseClient is OUR connection, kept under a different name so it never
+// collides with the library itself — same approach as auth.html.
+const supabaseUrl = 'https://vgwgbpjhxugyshlezjzh.supabase.co';
+const supabaseAnonKey = 'sb_publishable_ORhpfM5JPtpcEy01hohzLA_dpxQ6QpB';
+const supabaseClient = supabase.createClient(supabaseUrl, supabaseAnonKey);
+let currentUser = null; // set once the logged-in session is confirmed, on page load
+
+// ── SUBSCRIPTION PLANS ────────────────────────────────────
+// These IDs come from the actual plans set up in Stripe's Product catalog —
+// each one tells Stripe exactly which price to charge.
+const CHECKOUT_PRICES = {
+  starter: 'price_1U6bjd5KGdcWMYz3pggrnF7E',
+  growing: 'price_1U6bmY5KGdcWMYz3Qme0RHEO',
+  established: 'price_1U6bnR5KGdcWMYz3TxjnIGMd'
+};
+
+// The 1-on-1 setup call is billed hourly as a ONE-TIME purchase, not a
+// monthly subscription — separate from the three plans above.
+const SETUP_CALL_PRICE_ID = 'price_1U6edq5KGdcWMYz3jLHzWEyo';
+
+// Sends the signed-in user to a real, secure Stripe checkout page for the
+// chosen plan. The actual charge never happens inside Novium itself — this
+// just asks our own server-side function (create-checkout-session) to build
+// that page, then redirects the browser there.
+async function subscribeToPlan(tier) {
+  const priceId = CHECKOUT_PRICES[tier];
+  if (!priceId) { showToast('⚠️', 'Unknown plan'); return; }
+  if (!currentUser) { showToast('⚠️', 'Please sign in first'); return; }
+
+  showToast('🔄', 'Opening secure checkout…');
+
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    const resp = await fetch(supabaseUrl + '/functions/v1/create-checkout-session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + session.access_token
+      },
+      body: JSON.stringify({ priceId })
+    });
+    const data = await resp.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      showToast('⚠️', data.error || 'Could not start checkout');
+    }
+  } catch (e) {
+    showToast('⚠️', 'Checkout error: ' + e.message);
+  }
+}
+
+// Books the 1-on-1 setup call for whatever number of hours is selected —
+// a one-time purchase (mode: 'payment'), unlike the monthly subscriptions
+// above (mode: 'subscription' is the function's default, so we tell it
+// explicitly here to use 'payment' instead).
+async function bookSetupCall() {
+  const hoursSelect = document.getElementById('setup-call-hours');
+  const hours = Math.max(1, parseInt(hoursSelect?.value) || 1);
+  if (!currentUser) { showToast('⚠️', 'Please sign in first'); return; }
+
+  showToast('🔄', 'Opening secure checkout…');
+
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    const resp = await fetch(supabaseUrl + '/functions/v1/create-checkout-session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + session.access_token
+      },
+      body: JSON.stringify({ priceId: SETUP_CALL_PRICE_ID, quantity: hours, mode: 'payment' })
+    });
+    const data = await resp.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      showToast('⚠️', data.error || 'Could not start checkout');
+    }
+  } catch (e) {
+    showToast('⚠️', 'Checkout error: ' + e.message);
+  }
+}
 
 // ── LAZY-LOADED PDF LIBS ──────────────────────────────────
 // html2canvas + jsPDF are only needed when generating a PDF (email attachment,
@@ -783,8 +905,12 @@ let manualSentOverrides = [];
 // billingFreq: 'single' | 'weekly' | 'monthly'
 
 // ── PERSISTENT STORAGE ───────────────────────────────────
+let cloudSaveTimeout = null;
 function saveData() {
   if (isDemoMode) return; // never persist demo data over real saved data
+  // Keep an instant local cache too — the app still has your data right away
+  // on reload even if the cloud save is still in flight or the connection
+  // briefly drops.
   try {
     localStorage.setItem('mas_clients', JSON.stringify(clients));
     localStorage.setItem('mas_history', JSON.stringify(history));
@@ -793,8 +919,32 @@ function saveData() {
     localStorage.setItem('mas_business_info', JSON.stringify(businessInfo));
     localStorage.setItem('mas_manual_overrides', JSON.stringify(manualSentOverrides));
   } catch(e) { console.log('Save error:', e); }
+
+  // Save to the cloud (Supabase), debounced — saveData() fires after every
+  // small change, so this waits half a second after the LAST change before
+  // actually sending it, instead of one network request per keystroke.
+  clearTimeout(cloudSaveTimeout);
+  cloudSaveTimeout = setTimeout(saveToCloud, 600);
+
   // Auto-save to Google Drive in background if connected
   if (accessToken) saveToDrive();
+}
+
+// Sends the full data bundle to this account's row in the cloud database.
+// upsert() creates the row the first time, and updates it every time after.
+async function saveToCloud() {
+  if (!currentUser) return;
+  const bundle = { clients, history, invCounter, trackedAssignments, businessInfo, manualSentOverrides };
+  try {
+    const { error } = await supabaseClient.from('user_data').upsert({
+      user_id: currentUser.id,
+      data: bundle,
+      updated_at: new Date().toISOString()
+    });
+    if (error) console.log('Cloud save error:', error.message);
+  } catch (e) {
+    console.log('Cloud save error:', e);
+  }
 }
 
 const MAX_DRIVE_BACKUPS = 3;
@@ -902,48 +1052,105 @@ function showDriveSaveIndicator() {
   setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2500);
 }
 
-function loadData() {
+// Loads this account's data. On every normal login, this pulls from the
+// cloud (Supabase) so the same data shows up no matter which device you're
+// on. The one exception is the very first time a brand-new account ever
+// loads: if nothing has been saved to the cloud yet, this checks whether
+// real data is already sitting in THIS browser's local storage (e.g.
+// existing business data from before the cloud was set up) and, if so, uses
+// that as the starting point and immediately pushes it up to the cloud so
+// it's available on every device from then on.
+async function loadData() {
+  let cloudData = null;
+  try {
+    const { data, error } = await supabaseClient
+      .from('user_data')
+      .select('data')
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+    if (!error && data) cloudData = data.data;
+  } catch (e) {
+    console.log('Cloud load error:', e);
+  }
+
+  if (cloudData && Object.keys(cloudData).length > 0) {
+    applyLoadedData(cloudData);
+  } else {
+    const migrated = loadFromLocalStorage();
+    if (migrated) {
+      showToast('☁️', 'Existing data found on this device — saving it to your account…');
+      saveToCloud();
+    }
+  }
+
+  // Drive backup file bookkeeping stays local to this browser — each device's
+  // own Google Drive connection is independent, so it isn't part of the
+  // synced cloud bundle.
+  try {
+    const legacyD = localStorage.getItem('mas_drive_file_id');
+    const dIds = localStorage.getItem('mas_drive_backup_ids');
+    if (dIds) {
+      driveBackupFileIds = JSON.parse(dIds);
+    } else if (legacyD) {
+      driveBackupFileIds = [{ id: legacyD, createdAt: new Date().toISOString() }];
+    }
+  } catch (e) { console.log('Drive backup id load error:', e); }
+}
+
+// Applies a loaded data bundle (from the cloud, or migrated from local
+// storage) to the app's live variables, running the same one-time
+// migrations that used to live directly inside loadData().
+function applyLoadedData(d) {
+  if (d.clients) clients = d.clients;
+  if (d.history) history = d.history;
+  if (d.invCounter) invCounter = d.invCounter;
+  if (d.trackedAssignments) trackedAssignments = d.trackedAssignments;
+  if (d.businessInfo) businessInfo = d.businessInfo;
+  if (d.manualSentOverrides) manualSentOverrides = d.manualSentOverrides;
+
+  // Migrate assignments marked "paid" under the old invoice-level payment flow
+  // so they carry proper per-assignment payment details for the new rollup model.
+  trackedAssignments = trackedAssignments.map(a => {
+    if (a.status === 'paid' && !a.payment) {
+      const lastPaidEntry = (a.statusHistory || []).slice().reverse().find(sh => sh.status === 'paid');
+      return {...a, payment: { paid: true, date: lastPaidEntry ? lastPaidEntry.date : todayStr(), method: 'Direct deposit', reference: '', note: 'Migrated from earlier version' }};
+    }
+    return a;
+  });
+
+  // One-time migration: earlier versions hardcoded the invoice header to "MÁS
+  // Professional Services" / "Medical Interpretation Services" — anyone with
+  // saved data from before businessName/tagline existed gets those preserved
+  // as their starting values, so upgrading doesn't change what's already
+  // printed on their invoices. Editable (or clearable) anytime in Settings.
+  if (businessInfo && businessInfo.businessName === undefined) {
+    businessInfo.businessName = 'MÁS Professional Services';
+    businessInfo.tagline = 'Medical Interpretation Services';
+  }
+}
+
+// Reads whatever's sitting in THIS browser's local storage (the old
+// single-device storage method) — used only as a one-time migration source
+// for a brand-new account with nothing in the cloud yet. Returns true if
+// anything meaningful was found.
+function loadFromLocalStorage() {
   try {
     const c = localStorage.getItem('mas_clients');
     const h = localStorage.getItem('mas_history');
     const n = localStorage.getItem('mas_counter');
     const t = localStorage.getItem('mas_tracked');
     const b = localStorage.getItem('mas_business_info');
-    const legacyD = localStorage.getItem('mas_drive_file_id'); // pre-rotation single-file id, if any
-    const dIds = localStorage.getItem('mas_drive_backup_ids');
     const mo = localStorage.getItem('mas_manual_overrides');
+    if (!c && !h && !t) return false;
     if (c) clients = JSON.parse(c);
     if (h) history = JSON.parse(h);
     if (n) invCounter = parseInt(n);
     if (t) trackedAssignments = JSON.parse(t);
-    // Migrate assignments marked "paid" under the old invoice-level payment flow
-    // so they carry proper per-assignment payment details for the new rollup model.
-    trackedAssignments = trackedAssignments.map(a => {
-      if (a.status === 'paid' && !a.payment) {
-        const lastPaidEntry = (a.statusHistory || []).slice().reverse().find(sh => sh.status === 'paid');
-        return {...a, payment: { paid: true, date: lastPaidEntry ? lastPaidEntry.date : todayStr(), method: 'Direct deposit', reference: '', note: 'Migrated from earlier version' }};
-      }
-      return a;
-    });
     if (b) businessInfo = JSON.parse(b);
-    // One-time migration: earlier versions hardcoded the invoice header to "MÁS
-    // Professional Services" / "Medical Interpretation Services" — anyone with
-    // saved data from before businessName/tagline existed gets those preserved
-    // as their starting values, so upgrading doesn't change what's already
-    // printed on their invoices. Editable (or clearable) anytime in Settings.
-    if (businessInfo && businessInfo.businessName === undefined) {
-      businessInfo.businessName = 'MÁS Professional Services';
-      businessInfo.tagline = 'Medical Interpretation Services';
-    }
     if (mo) manualSentOverrides = JSON.parse(mo);
-    if (dIds) {
-      driveBackupFileIds = JSON.parse(dIds);
-    } else if (legacyD) {
-      // Upgrading from before rotation existed — fold the one existing backup
-      // file into the new array so it's accounted for going forward.
-      driveBackupFileIds = [{ id: legacyD, createdAt: new Date().toISOString() }];
-    }
-  } catch(e) { console.log('Load error:', e); }
+    applyLoadedData({}); // run the same migrations (paid-status, business name) on this local data
+    return true;
+  } catch(e) { console.log('Local load error:', e); return false; }
 }
 
 // ── GOOGLE AUTH ───────────────────────────────────────────
@@ -1443,13 +1650,14 @@ function openAddModal(id) {
         document.getElementById('m-end').value = a.end;
         document.getElementById('m-miles').value = a.miles || 0;
         document.getElementById('m-notes').value = a.notes || '';
+        document.getElementById('m-sublink').value = a.submissionLink || '';
         document.getElementById('m-status-flag').value = a.visitStatus || '';
         calcBilling();
       }, 50);
     }
   } else {
     document.getElementById('m-date').value = todayStr();
-    ['m-patient','m-location','m-po','m-start','m-end','m-notes'].forEach(x => document.getElementById(x).value = '');
+    ['m-patient','m-location','m-po','m-start','m-end','m-notes','m-sublink'].forEach(x => document.getElementById(x).value = '');
     document.getElementById('m-miles').value = 0;
     document.getElementById('m-status-flag').value = '';
   }
@@ -1569,7 +1777,7 @@ function saveAssignment() {
     mileageRate: c.mileageRate || 0, mileageAmt: mil, total: svc + mil,
     notes: document.getElementById('m-notes').value,
     visitStatus: document.getElementById('m-status-flag').value,
-    submissionLink: existing?.submissionLink || '',
+    submissionLink: document.getElementById('m-sublink').value.trim(),
     status: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.status || initialStatus) : initialStatus,
     statusHistory: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.statusHistory || []) : [{ status: initialStatus, date: todayStr() }],
     billingFreq: c.billingFreq || 'single',
@@ -2550,65 +2758,39 @@ function generateInvoicePdfForEmail(h) {
   </div>`;
   document.body.appendChild(container);
 
-  // Wait for web fonts to finish loading, then give the browser two paint
-  // cycles to settle the layout, before taking the screenshot. Capturing
-  // too early — before a font like Fraunces has loaded, or before a long
-  // note has finished wrapping onto its final number of lines — freezes the
-  // snapshot at a shorter height than the real content, cutting off
-  // whatever falls below that point (this is what caused occasional
-  // cut-off single-assignment invoices).
-  const settleFirst = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
-  settleFirst
-    .then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-    .then(() => html2canvas(container, { scale: 1.5, backgroundColor: '#ffffff' }))
-    .then(canvas => {
+  html2canvas(container, { scale: 1.5, backgroundColor: '#ffffff' }).then(canvas => {
     // Use JPEG compression instead of PNG — dramatically smaller file size
     // quality: 0.85 gives good visual quality while keeping file size manageable
     const imgData = canvas.toDataURL('image/jpeg', 0.85);
     const { jsPDF } = window.jspdf;
 
-    // Always build onto a real, standard US Letter page (8.5in x 11in) —
-    // previously the page width was tied directly to the on-screen invoice's
-    // pixel width (~760px), far narrower than an actual printable page
-    // (~816px). Most PDF viewers don't automatically shrink an unusually
-    // narrow custom page size to fit the window, so the right-hand portion
-    // of the invoice (the Hours/Rate/Amount columns, the Total Due figure)
-    // sat just past the edge of what most viewers showed by default —
-    // technically present in the file, but invisible without scrolling.
-    const pdf = new jsPDF({ unit: 'pt', format: 'letter' });
-    const pageWidthPt = pdf.internal.pageSize.getWidth();
-    const pageHeightPt = pdf.internal.pageSize.getHeight();
-    const marginPt = 24;
-    const usableWidthPt = pageWidthPt - marginPt * 2;
-    const maxContentHeightPt = pageHeightPt - marginPt * 2;
+    // Calculate page dimensions — split into multiple pages if invoice is tall
+    const pageWidth = canvas.width / 1.5;
+    const pageHeight = canvas.height / 1.5;
+    const maxPageHeight = pageWidth * 1.414; // A4 ratio
 
-    const imgWidthPx = canvas.width;
-    const imgHeightPx = canvas.height;
-    const pxPerPt = imgWidthPx / usableWidthPt; // source pixels per output point, at full page width
-    const scaledHeightPt = imgHeightPx / pxPerPt;
-
-    if (scaledHeightPt <= maxContentHeightPt) {
-      // Fits on a single Letter-sized page
-      pdf.addImage(imgData, 'JPEG', marginPt, marginPt, usableWidthPt, scaledHeightPt);
+    if (pageHeight <= maxPageHeight) {
+      // Single page — fits on one sheet
+      const pdf = new jsPDF({ unit: 'px', format: [pageWidth, pageHeight] });
+      pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight);
       const base64 = pdf.output('datauristring').split(',')[1];
       pendingEmailPdfBase64 = base64;
     } else {
-      // Split across multiple Letter-sized pages
-      const maxSlicePx = maxContentHeightPt * pxPerPt;
-      let yOffsetPx = 0;
+      // Multi-page — split into A4-sized pages
+      const pdf = new jsPDF({ unit: 'px', format: [pageWidth, maxPageHeight] });
+      let yOffset = 0;
       let pageNum = 0;
-      while (yOffsetPx < imgHeightPx) {
+      while (yOffset < pageHeight) {
         if (pageNum > 0) pdf.addPage();
-        const sliceHeightPx = Math.min(maxSlicePx, imgHeightPx - yOffsetPx);
+        // Draw just the slice of the canvas that fits on this page
         const sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width = imgWidthPx;
-        sliceCanvas.height = sliceHeightPx;
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = Math.min(maxPageHeight * 1.5, canvas.height - yOffset * 1.5);
         const ctx = sliceCanvas.getContext('2d');
-        ctx.drawImage(canvas, 0, yOffsetPx, imgWidthPx, sliceHeightPx, 0, 0, imgWidthPx, sliceHeightPx);
+        ctx.drawImage(canvas, 0, yOffset * 1.5, sliceCanvas.width, sliceCanvas.height, 0, 0, sliceCanvas.width, sliceCanvas.height);
         const sliceData = sliceCanvas.toDataURL('image/jpeg', 0.85);
-        const sliceHeightPt = sliceHeightPx / pxPerPt;
-        pdf.addImage(sliceData, 'JPEG', marginPt, marginPt, usableWidthPt, sliceHeightPt);
-        yOffsetPx += sliceHeightPx;
+        pdf.addImage(sliceData, 'JPEG', 0, 0, pageWidth, sliceCanvas.height / 1.5);
+        yOffset += maxPageHeight;
         pageNum++;
       }
       const base64 = pdf.output('datauristring').split(',')[1];
@@ -3586,9 +3768,19 @@ function typeTag(t) { const m = { 'Medical follow-up':'badge-medical','Medical a
 function showToast(icon, msg) { const t = document.getElementById('toast'); document.getElementById('t-icon').textContent = icon; document.getElementById('t-msg').textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3200); }
 
 // ── INIT ──────────────────────────────────────────────────
-window.addEventListener('load', () => {
-  checkSingleTab(() => {
-    loadData();
+window.addEventListener('load', async () => {
+  // Require a signed-in account before anything else loads — this is what
+  // ties the app to YOUR data instead of showing a blank slate or (worse)
+  // someone else's. If there's no valid session, send them to sign in.
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session) {
+    window.location.href = 'auth.html';
+    return;
+  }
+  currentUser = session.user;
+
+  checkSingleTab(async () => {
+    await loadData();
     showPanel('panel-connect');
     setStep(1);
     renderClients();
@@ -3599,6 +3791,12 @@ window.addEventListener('load', () => {
     armSilentReconnectOnFirstInteraction();
   });
 });
+
+function signOut() {
+  supabaseClient.auth.signOut().then(() => {
+    window.location.href = 'auth.html';
+  });
+}
 
 // Browsers flag/block popup-style requests (like Google's silent token reissue)
 // when they're triggered automatically with no real user action behind them —
