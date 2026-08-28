@@ -173,7 +173,7 @@ async function handleSignUp() {
 // to the app instead of showing the sign-in form again.
 (async () => {
   const { data: { session } } = await supabaseClient.auth.getSession();
-  if (session) window.location.href = '/app.html';
+  if (session) window.location.href = '/index.html';
 })();
 </script>
 </body>
