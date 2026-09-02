@@ -1631,7 +1631,7 @@ function openAddModal(id) {
   editingAssignId = id || null;
   document.getElementById('assign-modal-title').textContent = id ? 'Edit assignment' : 'Add manually';
   const sel = document.getElementById('m-client');
-  sel.innerHTML = '<option value="">— Select —</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  sel.innerHTML = '<option value="">— Select —</option>' + clients.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   document.getElementById('m-type').innerHTML = '<option value="">— Select —</option>';
   document.getElementById('m-rate-info').style.display = 'none';
   document.getElementById('m-billing-preview').style.display = 'none';
@@ -1849,15 +1849,15 @@ function openStatusModal(assignId) {
   document.getElementById('status-modal-title').textContent = a.clientName + ' — ' + fmtDateShort(a.date);
 
   let body = `<div style="margin-bottom:14px;">
-    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">${a.type} · ${a.patientName}</div>
-    <div style="font-size:12px;color:var(--ink3);">${fmtTime(a.start)}–${fmtTime(a.end)} · ${a.location||'—'}${a.po ? ' · PO: '+a.po : ''}</div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:4px;">${esc(a.type)} · ${esc(a.patientName)}</div>
+    <div style="font-size:12px;color:var(--ink3);">${fmtTime(a.start)}–${fmtTime(a.end)} · ${esc(a.location)||'—'}${a.po ? ' · PO: '+esc(a.po) : ''}</div>
     <div style="margin-top:10px;">Current status: <span class="status-badge ${st.cls}">${st.icon} ${st.label}</span></div>
   </div>`;
 
   if (a.payment && a.payment.paid) {
     body += `<div style="margin-bottom:14px;padding:10px 12px;background:var(--green-light);border-radius:var(--r-sm);">
       <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:4px;">💚 Paid ${fmtDateShort(a.payment.date)}</div>
-      <div style="font-size:12px;color:var(--ink2);">${a.payment.method}${a.payment.reference ? ' · Ref: ' + a.payment.reference : ''}${a.payment.note ? '<br>' + a.payment.note : ''}</div>
+      <div style="font-size:12px;color:var(--ink2);">${esc(a.payment.method)}${a.payment.reference ? ' · Ref: ' + esc(a.payment.reference) : ''}${a.payment.note ? '<br>' + esc(a.payment.note) : ''}</div>
     </div>`;
   }
 
@@ -1876,7 +1876,7 @@ function openStatusModal(assignId) {
     body += `<div style="margin-bottom:10px;padding:10px 12px;background:var(--gold-light);border-left:3px solid var(--gold2);border-radius:var(--r-sm);">
       <div style="font-size:11px;font-weight:600;color:var(--gold);margin-bottom:6px;">✏️ Edit history</div>`;
     a.editHistory.forEach(e => {
-      body += `<div style="font-size:11px;color:var(--ink2);margin-bottom:4px;"><strong>${fmtDateShort(e.date)}</strong> — ${e.changes.join(', ')}</div>`;
+      body += `<div style="font-size:11px;color:var(--ink2);margin-bottom:4px;"><strong>${fmtDateShort(e.date)}</strong> — ${esc(e.changes.join(', '))}</div>`;
     });
     body += `</div>`;
   }
@@ -1976,8 +1976,8 @@ function openMarkPaidModal(mode, id) {
     document.getElementById('pay-notes').value = existing?.note || '';
     document.getElementById('payment-modal-title').textContent = 'Mark as paid';
     body = `<div style="padding:12px 16px;background:var(--canvas);border-radius:var(--r-sm);">
-      <div style="font-weight:600;margin-bottom:4px;">${a.clientName} — ${a.type}</div>
-      <div style="font-size:12px;color:var(--ink3);">${a.patientName} · ${fmtDateShort(a.date)} · Billed: $${a.total.toFixed(2)}</div>
+      <div style="font-weight:600;margin-bottom:4px;">${esc(a.clientName)} — ${esc(a.type)}</div>
+      <div style="font-size:12px;color:var(--ink3);">${esc(a.patientName)} · ${fmtDateShort(a.date)} · Billed: $${a.total.toFixed(2)}</div>
     </div>`;
     document.getElementById('pay-amount-row').style.display = 'grid';
     document.getElementById('pay-accept-full').checked = true;
@@ -1995,7 +1995,7 @@ function openMarkPaidModal(mode, id) {
     const remaining = roll.total - roll.paid;
     document.getElementById('payment-modal-title').textContent = 'Mark all assignments paid';
     body = `<div style="padding:12px 16px;background:var(--canvas);border-radius:var(--r-sm);">
-      <div style="font-weight:600;margin-bottom:4px;">${h.client} — ${h.num}</div>
+      <div style="font-weight:600;margin-bottom:4px;">${esc(h.client)} — ${esc(h.num)}</div>
       <div style="font-size:12px;color:var(--ink3);">This will mark all ${remaining} unpaid assignment${remaining === 1 ? '' : 's'} as paid in full, using the same date/method/reference for each. To record a different amount for one of them, mark it individually instead.</div>
     </div>`;
     // Bulk applies each assignment's own full billed amount — a single shared
@@ -2154,7 +2154,7 @@ function renderMismatchBanner() {
       const received = amountReceivedFor(a);
       const diff = received - a.total;
       return `<div style="padding:8px 0;border-top:1px solid rgba(0,0,0,.08);display:flex;justify-content:space-between;gap:10px;align-items:center;">
-        <div style="font-size:12px;"><strong>${fmtDateShort(a.date)}</strong> · ${a.clientName} — ${a.patientName} · billed $${a.total.toFixed(2)}, received $${received.toFixed(2)} <span style="color:${diff > 0 ? 'var(--teal)' : 'var(--red)'};">(${diff > 0 ? '+' : ''}$${diff.toFixed(2)})</span></div>
+        <div style="font-size:12px;"><strong>${fmtDateShort(a.date)}</strong> · ${esc(a.clientName)} — ${esc(a.patientName)} · billed $${a.total.toFixed(2)}, received $${received.toFixed(2)} <span style="color:${diff > 0 ? 'var(--teal)' : 'var(--red)'};">(${diff > 0 ? '+' : ''}$${diff.toFixed(2)})</span></div>
         <button class="btn btn-outline btn-xs" onclick="fixMismatchedPayment('${a.id}')">✓ Update billed to $${received.toFixed(2)}</button>
       </div>`;
     }).join('')}</div>
@@ -2269,7 +2269,7 @@ function renderAssignments() {
     return `<div class="assign-row selected" id="ar-${a.id}" style="${isDupe ? 'background:var(--red-light);border-color:#f5c5c0;' : ''}">
       <input type="checkbox" id="chk-${a.id}" checked onchange="document.getElementById('ar-${a.id}').classList.toggle('selected',this.checked);updateSummary()">
       <div style="font-size:12px;font-weight:600;color:var(--ink2);">${fmtDateShort(a.date)}</div>
-      <div><div style="font-weight:500">${a.clientName} — <span class="badge ${typeTag(a.type)}">${a.type}</span>${visitStatusBadge(a.visitStatus)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.patientName}${a.po ? ' · PO: '+a.po : ''} · ${a.location||'—'}</div>${dupeWarning}</div>
+      <div><div style="font-weight:500">${esc(a.clientName)} — <span class="badge ${typeTag(a.type)}">${esc(a.type)}</span>${visitStatusBadge(a.visitStatus)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${esc(a.patientName)}${a.po ? ' · PO: '+esc(a.po) : ''} · ${esc(a.location)||'—'}</div>${dupeWarning}</div>
       <div style="font-size:12px;color:var(--ink3)">${fmtTime(a.start)}–${fmtTime(a.end)}</div>
       <div style="font-size:12px;color:var(--ink3)">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}h<br><span style="font-size:11px">$${a.rate}/hr</span></div>
       <div style="font-size:12px;color:var(--ink3)">${a.mileageAmt > 0 ? '$'+a.mileageAmt.toFixed(2) : '—'}</div>
@@ -2342,7 +2342,7 @@ function startOverFromAssignments() {
 // ── BATCH INVOICE ─────────────────────────────────────────
 function openBatchModal() {
   const sel = document.getElementById('batch-client');
-  sel.innerHTML = '<option value="">— Select agency —</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  sel.innerHTML = '<option value="">— Select agency —</option>' + clients.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   document.getElementById('batch-preview').innerHTML = '';
   document.getElementById('batch-generate-btn').disabled = true;
   document.getElementById('batch-week-start').value = getMondayOf(todayStr());
@@ -2433,8 +2433,8 @@ function renderBatchPreview() {
   items.sort((a,b) => a.date.localeCompare(b.date)).forEach(a => {
     html += `<tr style="border-bottom:1px solid var(--canvas);">
       <td style="padding:7px 8px;">${fmtDateShort(a.date)}</td>
-      <td style="padding:7px 8px;">${a.patientName}${a.po ? '<br><span style="font-size:10px;color:var(--ink3);">PO: '+a.po+'</span>' : ''}</td>
-      <td style="padding:7px 8px;">${a.type}</td>
+      <td style="padding:7px 8px;">${esc(a.patientName)}${a.po ? '<br><span style="font-size:10px;color:var(--ink3);">PO: '+esc(a.po)+'</span>' : ''}</td>
+      <td style="padding:7px 8px;">${esc(a.type)}</td>
       <td style="padding:7px 8px;text-align:center;">${fmtTime(a.start)}</td>
       <td style="padding:7px 8px;text-align:center;">${fmtTime(a.end)}</td>
       <td style="padding:7px 8px;text-align:right;">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
@@ -2526,7 +2526,7 @@ function renderInvoice() {
     const note = a.overMin ? `Actual: ${fmtMins(a.actualMins)}, billed: ${fmtMins(a.billableMins)} (15-min increments)` : `${a.minHours}hr minimum guaranteed`;
     return `<tr>
       <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
-      <td><div style="font-weight:500">${a.type} — ${a.patientName}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${fmtTime(a.start)}–${fmtTime(a.end)} · ${note}${a.po ? ' · PO: '+a.po : ''}${invoiceStatusAndNotes(a)}</div></td>
+      <td><div style="font-weight:500">${esc(a.type)} — ${esc(a.patientName)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${esc(a.location)||''} · ${fmtTime(a.start)}–${fmtTime(a.end)} · ${esc(note)}${a.po ? ' · PO: '+esc(a.po) : ''}${invoiceStatusAndNotes(a)}</div></td>
       <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
       <td class="right">$${a.rate.toFixed(2)}</td>
       <td class="right" style="font-weight:500">$${a.serviceAmt.toFixed(2)}</td>
@@ -2534,13 +2534,13 @@ function renderInvoice() {
   }).join('');
   document.getElementById('invoice-preview').innerHTML = `
     <div class="inv-hdr">
-      <div><div class="inv-logo">${businessInfo.businessName || businessInfo.name || 'Your Business'}${businessInfo.tagline ? '<small>'+businessInfo.tagline+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
-      <div class="inv-meta"><strong>Invoice</strong>#${iN}<br>Date: ${fmtDateLong(iD)}<br>Due: ${fmtDateLong(iDu)}<br>Terms: ${terms}<br><span style="display:inline-block;margin-top:8px;padding:4px 12px;background:var(--teal);color:white;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em">PENDING</span></div>
+      <div><div class="inv-logo">${esc(businessInfo.businessName || businessInfo.name || 'Your Business')}${businessInfo.tagline ? '<small>'+esc(businessInfo.tagline)+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${esc(businessInfo.name)}${businessInfo.addr1 ? '<br>'+esc(businessInfo.addr1) : ''}${businessInfo.addr2 ? '<br>'+esc(businessInfo.addr2) : ''}</div></div>
+      <div class="inv-meta"><strong>Invoice</strong>#${esc(iN)}<br>Date: ${fmtDateLong(iD)}<br>Due: ${fmtDateLong(iDu)}<br>Terms: ${esc(terms)}<br><span style="display:inline-block;margin-top:8px;padding:4px 12px;background:var(--teal);color:white;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em">PENDING</span></div>
     </div>
     <div class="inv-body">
       <div class="inv-parties">
-        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${cN}</div><div class="inv-pdet">${cE}${interpreterIdLine}</div></div>
-        <div><div class="inv-plbl">Payment</div><div class="inv-pname">${terms}</div><div class="inv-pdet">${payment.split('\n').join('<br>')}</div></div>
+        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${esc(cN)}</div><div class="inv-pdet">${esc(cE)}${interpreterIdLine}</div></div>
+        <div><div class="inv-plbl">Payment</div><div class="inv-pname">${esc(terms)}</div><div class="inv-pdet">${esc(payment).split('\n').join('<br>')}</div></div>
       </div>
       <table class="inv-tbl">
         <thead><tr><th style="width:120px">Date</th><th>Description</th><th class="right" style="width:60px">Hours</th><th class="right" style="width:70px">Rate</th><th class="right" style="width:90px">Amount</th></tr></thead>
@@ -2551,9 +2551,9 @@ function renderInvoice() {
         ${milTotal > 0 ? `<div class="inv-trow"><span>Mileage</span><span>$${milTotal.toFixed(2)}</span></div>` : ''}
         <div class="inv-trow grand"><span>Total Due</span><span>$${grand.toFixed(2)}</span></div>
       </div>
-      ${notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${notes}</div>` : ''}
+      ${notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${esc(notes)}</div>` : ''}
     </div>
-    <div class="inv-foot"><div class="inv-foot-note">${businessInfo.businessName || businessInfo.name || ''}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>`;
+    <div class="inv-foot"><div class="inv-foot-note">${esc(businessInfo.businessName || businessInfo.name || '')}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>`;
 }
 
 function deleteInvoice(historyId) {
@@ -2619,7 +2619,7 @@ function reprintInvoice(historyId) {
     const svcAmt = a.serviceAmt != null ? a.serviceAmt : (a.total - (a.mileageAmt || 0));
     return `<tr>
       <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
-      <td><div style="font-weight:500">${a.type} — ${a.patientName}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + note : ''}${a.po ? ' · PO: '+a.po : ''}${invoiceStatusAndNotes(a)}</div></td>
+      <td><div style="font-weight:500">${esc(a.type)} — ${esc(a.patientName)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${esc(a.location)||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + esc(note) : ''}${a.po ? ' · PO: '+esc(a.po) : ''}${invoiceStatusAndNotes(a)}</div></td>
       <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
       <td class="right">$${a.rate.toFixed(2)}</td>
       <td class="right" style="font-weight:500">$${svcAmt.toFixed(2)}</td>
@@ -2635,13 +2635,13 @@ function reprintInvoice(historyId) {
 
   document.getElementById('reprint-invoice-preview').innerHTML = `
     <div class="inv-hdr">
-      <div><div class="inv-logo">${businessInfo.businessName || businessInfo.name || 'Your Business'}${businessInfo.tagline ? '<small>'+businessInfo.tagline+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
-      <div class="inv-meta"><strong>Invoice</strong>#${h.num}<br>Date: ${fmtDateLong(h.date)}<br>Due: ${h.dueDate ? fmtDateLong(h.dueDate) : '—'}<br>Terms: ${h.terms || 'Net 30'}<br>${statusBadgeHtml}</div>
+      <div><div class="inv-logo">${esc(businessInfo.businessName || businessInfo.name || 'Your Business')}${businessInfo.tagline ? '<small>'+esc(businessInfo.tagline)+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${esc(businessInfo.name)}${businessInfo.addr1 ? '<br>'+esc(businessInfo.addr1) : ''}${businessInfo.addr2 ? '<br>'+esc(businessInfo.addr2) : ''}</div></div>
+      <div class="inv-meta"><strong>Invoice</strong>#${esc(h.num)}<br>Date: ${fmtDateLong(h.date)}<br>Due: ${h.dueDate ? fmtDateLong(h.dueDate) : '—'}<br>Terms: ${esc(h.terms || 'Net 30')}<br>${statusBadgeHtml}</div>
     </div>
     <div class="inv-body">
       <div class="inv-parties">
-        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${h.client}</div><div class="inv-pdet">${h.clientEmail || ''}${h.interpreterId ? '<br>Interpreter ID: ' + h.interpreterId : ''}</div></div>
-        <div><div class="inv-plbl">Payment</div><div class="inv-pname">${h.terms || 'Net 30'}</div><div class="inv-pdet">${(h.payment || '').split('\n').join('<br>')}</div></div>
+        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${esc(h.client)}</div><div class="inv-pdet">${esc(h.clientEmail || '')}${h.interpreterId ? '<br>Interpreter ID: ' + esc(h.interpreterId) : ''}</div></div>
+        <div><div class="inv-plbl">Payment</div><div class="inv-pname">${esc(h.terms || 'Net 30')}</div><div class="inv-pdet">${esc(h.payment || '').split('\n').join('<br>')}</div></div>
       </div>
       <table class="inv-tbl">
         <thead><tr><th style="width:120px">Date</th><th>Description</th><th class="right" style="width:60px">Hours</th><th class="right" style="width:70px">Rate</th><th class="right" style="width:90px">Amount</th></tr></thead>
@@ -2652,9 +2652,9 @@ function reprintInvoice(historyId) {
         ${milTotal > 0 ? `<div class="inv-trow"><span>Mileage</span><span>$${milTotal.toFixed(2)}</span></div>` : ''}
         <div class="inv-trow grand"><span>Total Due</span><span>$${grand.toFixed(2)}</span></div>
       </div>
-      ${h.notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${h.notes}</div>` : ''}
+      ${h.notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${esc(h.notes)}</div>` : ''}
     </div>
-    <div class="inv-foot"><div class="inv-foot-note">${businessInfo.businessName || businessInfo.name || ''}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>`;
+    <div class="inv-foot"><div class="inv-foot-note">${esc(businessInfo.businessName || businessInfo.name || '')}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>`;
 
   document.getElementById('reprint-modal').style.display = 'flex';
 }
@@ -2729,7 +2729,7 @@ function generateInvoicePdfForEmail(h) {
     const svcAmt = a.serviceAmt != null ? a.serviceAmt : (a.total - (a.mileageAmt || 0));
     return `<tr>
       <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
-      <td><div style="font-weight:500">${a.type} — ${a.patientName}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${a.location||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + note : ''}${a.po ? ' · PO: '+a.po : ''}${invoiceStatusAndNotes(a)}</div></td>
+      <td><div style="font-weight:500">${esc(a.type)} — ${esc(a.patientName)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${esc(a.location)||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + esc(note) : ''}${a.po ? ' · PO: '+esc(a.po) : ''}${invoiceStatusAndNotes(a)}</div></td>
       <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
       <td class="right">$${a.rate.toFixed(2)}</td>
       <td class="right" style="font-weight:500">$${svcAmt.toFixed(2)}</td>
@@ -2740,13 +2740,13 @@ function generateInvoicePdfForEmail(h) {
   container.style.cssText = 'position:fixed;left:-9999px;top:0;width:760px;background:white;';
   container.innerHTML = `<div class="inv-wrap">
     <div class="inv-hdr">
-      <div><div class="inv-logo">${businessInfo.businessName || businessInfo.name || 'Your Business'}${businessInfo.tagline ? '<small>'+businessInfo.tagline+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${businessInfo.name}${businessInfo.addr1 ? '<br>'+businessInfo.addr1 : ''}${businessInfo.addr2 ? '<br>'+businessInfo.addr2 : ''}</div></div>
-      <div class="inv-meta"><strong>Invoice</strong>#${h.num}<br>Date: ${fmtDateLong(h.date)}<br>Due: ${h.dueDate ? fmtDateLong(h.dueDate) : '—'}<br>Terms: ${h.terms || 'Net 30'}</div>
+      <div><div class="inv-logo">${esc(businessInfo.businessName || businessInfo.name || 'Your Business')}${businessInfo.tagline ? '<small>'+esc(businessInfo.tagline)+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${esc(businessInfo.name)}${businessInfo.addr1 ? '<br>'+esc(businessInfo.addr1) : ''}${businessInfo.addr2 ? '<br>'+esc(businessInfo.addr2) : ''}</div></div>
+      <div class="inv-meta"><strong>Invoice</strong>#${esc(h.num)}<br>Date: ${fmtDateLong(h.date)}<br>Due: ${h.dueDate ? fmtDateLong(h.dueDate) : '—'}<br>Terms: ${esc(h.terms || 'Net 30')}</div>
     </div>
     <div class="inv-body">
       <div class="inv-parties">
-        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${h.client}</div><div class="inv-pdet">${h.clientEmail || ''}${h.interpreterId ? '<br>Interpreter ID: ' + h.interpreterId : ''}</div></div>
-        <div><div class="inv-plbl">Payment</div><div class="inv-pname">${h.terms || 'Net 30'}</div><div class="inv-pdet">${(h.payment || '').split('\n').join('<br>')}</div></div>
+        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${esc(h.client)}</div><div class="inv-pdet">${esc(h.clientEmail || '')}${h.interpreterId ? '<br>Interpreter ID: ' + esc(h.interpreterId) : ''}</div></div>
+        <div><div class="inv-plbl">Payment</div><div class="inv-pname">${esc(h.terms || 'Net 30')}</div><div class="inv-pdet">${esc(h.payment || '').split('\n').join('<br>')}</div></div>
       </div>
       <table class="inv-tbl">
         <thead><tr><th style="width:120px">Date</th><th>Description</th><th class="right" style="width:60px">Hours</th><th class="right" style="width:70px">Rate</th><th class="right" style="width:90px">Amount</th></tr></thead>
@@ -2757,9 +2757,9 @@ function generateInvoicePdfForEmail(h) {
         ${milTotal > 0 ? `<div class="inv-trow"><span>Mileage</span><span>$${milTotal.toFixed(2)}</span></div>` : ''}
         <div class="inv-trow grand"><span>Total Due</span><span>$${grand.toFixed(2)}</span></div>
       </div>
-      ${h.notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${h.notes}</div>` : ''}
+      ${h.notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${esc(h.notes)}</div>` : ''}
     </div>
-    <div class="inv-foot"><div class="inv-foot-note">${businessInfo.businessName || businessInfo.name || ''}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>
+    <div class="inv-foot"><div class="inv-foot-note">${esc(businessInfo.businessName || businessInfo.name || '')}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>
   </div>`;
   document.body.appendChild(container);
 
@@ -3128,12 +3128,12 @@ function renderClients() {
     const freqLabel = c.billingFreq === 'weekly' ? '<span class="badge badge-weekly">Weekly billing</span>' :
                       c.billingFreq === 'monthly' ? '<span class="badge badge-monthly">Monthly billing</span>' :
                       '<span class="badge badge-general">Per assignment</span>';
-    const interpreterIdLabel = c.interpreterId ? `<span class="badge badge-general">ID: ${c.interpreterId}</span>` : '';
+    const interpreterIdLabel = c.interpreterId ? `<span class="badge badge-general">ID: ${esc(c.interpreterId)}</span>` : '';
     return `<div class="client-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
         <div>
-          <div style="font-weight:600;font-size:15px;margin-bottom:4px">${c.name}</div>
-          <div style="font-size:12px;color:var(--ink3);margin-bottom:6px">${c.email}</div>
+          <div style="font-weight:600;font-size:15px;margin-bottom:4px">${esc(c.name)}</div>
+          <div style="font-size:12px;color:var(--ink3);margin-bottom:6px">${esc(c.email)}</div>
           <div style="display:flex;gap:4px;flex-wrap:wrap;">${freqLabel}${interpreterIdLabel}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
@@ -3141,7 +3141,7 @@ function renderClients() {
           <button class="btn btn-danger btn-xs" onclick="deleteClient('${c.id}')">✕</button>
         </div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">${c.rates.map(r => `<span class="badge ${typeTag(r.type)}">${r.type} · $${r.rate}/hr · ${r.minHours}hr min</span>`).join('')}${c.mileageRate > 0 ? `<span class="badge badge-teal">$${c.mileageRate}/mi</span>` : ''}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">${c.rates.map(r => `<span class="badge ${typeTag(r.type)}">${esc(r.type)} · $${r.rate}/hr · ${r.minHours}hr min</span>`).join('')}${c.mileageRate > 0 ? `<span class="badge badge-teal">$${c.mileageRate}/mi</span>` : ''}</div>
     </div>`;
   }).join('');
 }
@@ -3163,10 +3163,10 @@ function deleteClient(id) {
 }
 function updateClientDropdowns() {
   const s = document.getElementById('m-client'); const v = s.value;
-  s.innerHTML = '<option value="">— Select —</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  s.innerHTML = '<option value="">— Select —</option>' + clients.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   s.value = v;
   const bs = document.getElementById('batch-client');
-  if (bs) { bs.innerHTML = '<option value="">— Select agency —</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join(''); }
+  if (bs) { bs.innerHTML = '<option value="">— Select agency —</option>' + clients.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join(''); }
 }
 
 function renderHistory() {
@@ -3235,8 +3235,8 @@ function renderHistory() {
     html += `<div class="inv-wrap" style="margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;flex-wrap:wrap;">
         <div style="min-width:170px;">
-          <div style="font-weight:600;">${h.num}</div>
-          <div style="font-size:11px;color:var(--ink3);margin-top:2px;">${h.client} · ${fmtDateShort(h.date)}</div>
+          <div style="font-weight:600;">${esc(h.num)}</div>
+          <div style="font-size:11px;color:var(--ink3);margin-top:2px;">${esc(h.client)} · ${fmtDateShort(h.date)}</div>
         </div>
         <div style="font-weight:600;">$${h.total.toFixed(2)}</div>
         <div>${statusBadge}</div>
@@ -3386,11 +3386,11 @@ function renderInvoiceAssignmentRows(h) {
       ? `<button class="btn btn-outline btn-xs" onclick="openMarkPaidModal('single','${a.id}')">Edit</button> <button class="btn btn-ghost btn-xs" onclick="unmarkAssignmentPaid('${a.id}')">Undo</button>`
       : `<button class="btn btn-teal btn-xs" onclick="openMarkPaidModal('single','${a.id}')">Mark paid</button>`;
     const payDetail = a.payment
-      ? `<div style="font-size:11px;color:var(--ink3);margin-top:2px;">${a.payment.method}${a.payment.reference ? ' · Ref ' + a.payment.reference : ''} · ${fmtDateShort(a.payment.date)}${a.payment.note ? ' · ' + a.payment.note : ''}${overOrUnderPaid ? ' · <strong style="color:var(--teal);">Received $' + received.toFixed(2) + ' vs billed $' + a.total.toFixed(2) + '</strong>' : ''}</div>`
+      ? `<div style="font-size:11px;color:var(--ink3);margin-top:2px;">${esc(a.payment.method)}${a.payment.reference ? ' · Ref ' + esc(a.payment.reference) : ''} · ${fmtDateShort(a.payment.date)}${a.payment.note ? ' · ' + esc(a.payment.note) : ''}${overOrUnderPaid ? ' · <strong style="color:var(--teal);">Received $' + received.toFixed(2) + ' vs billed $' + a.total.toFixed(2) + '</strong>' : ''}</div>`
       : '';
     return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--canvas);font-size:12px;">
       <div style="flex:1;min-width:0;">
-        <div style="font-weight:500;">${fmtDateShort(a.date)} · ${a.patientName} <span style="color:var(--ink3);font-weight:400;">— ${a.type}</span></div>
+        <div style="font-weight:500;">${fmtDateShort(a.date)} · ${esc(a.patientName)} <span style="color:var(--ink3);font-weight:400;">— ${esc(a.type)}</span></div>
         ${payDetail}
       </div>
       <div style="text-align:right;">
@@ -3500,7 +3500,7 @@ function renderOutstanding() {
         ${orphans.length > 1 ? `<button class="btn btn-danger btn-sm" style="flex-shrink:0;" onclick="deleteAllOrphanedAssignments()">🗑 Delete all ${orphans.length}</button>` : ''}
       </div>
       <div style="margin-top:10px;">${orphans.map(a => `<div style="padding:8px 0;border-top:1px solid rgba(0,0,0,.08);display:flex;justify-content:space-between;gap:10px;align-items:center;">
-        <div style="font-size:12px;"><strong>${fmtDateShort(a.date)}</strong> · ${a.clientName} — ${a.type} · ${a.patientName}</div>
+        <div style="font-size:12px;"><strong>${fmtDateShort(a.date)}</strong> · ${esc(a.clientName)} — ${esc(a.type)} · ${esc(a.patientName)}</div>
         <div style="display:flex;gap:8px;align-items:center;">
           <div style="font-weight:600;">$${a.total.toFixed(2)}</div>
           <button class="btn btn-outline btn-xs" onclick="advanceStatus('${a.id}','logged')">↩️ Revert to Logged</button>
@@ -3544,7 +3544,7 @@ function renderOutstanding() {
     const clientTotal = items.reduce((s, a) => s + remainingOwedFor(a), 0);
     html += `<div class="card" id="out-client-${slugifyForId(clientName)}" data-client-name="${clientName.replace(/"/g, '&quot;')}" style="padding:20px;margin-bottom:16px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
-        <div style="font-family:'Fraunces',serif;font-size:16px;">${clientName}</div>
+        <div style="font-family:'Fraunces',serif;font-size:16px;">${esc(clientName)}</div>
         <div style="font-weight:600;color:var(--red);">$${clientTotal.toFixed(2)} outstanding</div>
       </div>
       ${items.map(a => {
@@ -3552,7 +3552,7 @@ function renderOutstanding() {
         const remaining = remainingOwedFor(a);
         return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--canvas);font-size:12px;">
         <div style="flex:1;min-width:0;">
-          <div style="font-weight:500;">${fmtDateShort(a.date)} · ${a.patientName} <span style="color:var(--ink3);font-weight:400;">— ${a.type}</span></div>
+          <div style="font-weight:500;">${fmtDateShort(a.date)} · ${esc(a.patientName)} <span style="color:var(--ink3);font-weight:400;">— ${esc(a.type)}</span></div>
           <div style="font-size:11px;color:var(--ink3);margin-top:2px;">Invoice ${invoiceNumFor(a.id)}${partial ? ` · $${amountReceivedFor(a).toFixed(2)} of $${a.total.toFixed(2)} received` : ''}</div>
         </div>
         <div style="text-align:right;">
@@ -3653,8 +3653,8 @@ function renderMileageLog() {
   entries.forEach(a => {
     html += `<div class="hist-row-new" style="grid-template-columns:90px 1fr 1fr 70px 90px 90px;">
       <div style="font-size:12px;">${fmtDateShort(a.date)}</div>
-      <div style="font-size:13px;">${a.clientName}<div style="font-size:11px;color:var(--ink3);">${a.patientName}</div></div>
-      <div style="font-size:12px;color:var(--ink3);">${a.location || '—'}</div>
+      <div style="font-size:13px;">${esc(a.clientName)}<div style="font-size:11px;color:var(--ink3);">${esc(a.patientName)}</div></div>
+      <div style="font-size:12px;color:var(--ink3);">${esc(a.location) || '—'}</div>
       <div style="text-align:right;font-size:13px;">${a.miles}</div>
       <div style="text-align:right;font-size:12px;color:var(--ink3);">${a.mileageRate > 0 ? '$'+a.mileageRate+'/mi' : '—'}</div>
       <div style="text-align:right;font-weight:600;font-size:13px;">${a.mileageAmt > 0 ? '$'+a.mileageAmt.toFixed(2) : '—'}</div>
@@ -3765,6 +3765,19 @@ function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
 // ── UTILS ─────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2,9); }
+// Escapes a value for safe insertion into HTML built via template literals.
+// Data like patient names and locations can come from Google Calendar
+// events — a source outside this app's control — so anything user- or
+// calendar-supplied gets run through this before being placed into
+// innerHTML, to prevent stored XSS (e.g. a calendar event title containing
+// an <img onerror=...> payload executing when an invoice is previewed,
+// printed, or emailed).
+function esc(str) {
+  if (str === null || str === undefined) return '';
+  const div = document.createElement('div');
+  div.textContent = String(str);
+  return div.innerHTML;
+}
 // Returns today's date as YYYY-MM-DD in the LOCAL timezone. (The previous
 // version used toISOString(), which converts to UTC first — since UTC is
 // several hours ahead of US Pacific time, any time after roughly 4-5pm
