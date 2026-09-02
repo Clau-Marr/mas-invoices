@@ -1649,15 +1649,20 @@ function openAddModal(id) {
       // If the saved type doesn't match any of the client's current rate
       // rows (e.g. the rate card's assignment type was renamed since this
       // assignment was created), typeSel.value silently fails to select
-      // anything and the field looks cleared. Add it back as a one-off
-      // option so the original value is preserved and visible instead of
-      // disappearing.
+      // anything and the field looks cleared. First try a case-insensitive
+      // match (e.g. a saved "medical" against a rate card "Medical") before
+      // falling back to preserving the original text as a one-off option.
       if (typeSel.value !== a.type && a.type) {
-        const opt = document.createElement('option');
-        opt.value = a.type;
-        opt.textContent = a.type + ' (no longer on rate card)';
-        typeSel.appendChild(opt);
-        typeSel.value = a.type;
+        const match = Array.from(typeSel.options).find(o => o.value.toLowerCase() === a.type.toLowerCase());
+        if (match) {
+          typeSel.value = match.value;
+        } else {
+          const opt = document.createElement('option');
+          opt.value = a.type;
+          opt.textContent = a.type + ' (no longer on rate card)';
+          typeSel.appendChild(opt);
+          typeSel.value = a.type;
+        }
       }
       onTypeChange();
       document.getElementById('m-date').value = a.date;
