@@ -1694,11 +1694,20 @@ function onClientChange() {
 
 }
 
+// Looks up a client's rate row for a given assignment type. Extracted as a
+// single shared helper — this exact `x.type === type` comparison previously
+// existed as three separate, independently-copy-pasted lines (onTypeChange,
+// calcBilling, saveAssignment); consolidating them means a future change to
+// how rates are matched only has to happen once.
+function findClientRate(client, type) {
+  return client.rates.find(x => x.type === type);
+}
+
 function onTypeChange() {
   const c = clients.find(x => x.id === document.getElementById('m-client').value);
   const type = document.getElementById('m-type').value;
   if (!c || !type) return;
-  const r = c.rates.find(x => x.type === type);
+  const r = findClientRate(c, type);
   if (!r) return;
   const el = document.getElementById('m-rate-info');
   el.style.display = 'block';
@@ -1741,7 +1750,7 @@ function calcBilling() {
     document.getElementById('m-status-flag').value = 'no_show';
   }
   if (!c || !type || !start || !end) { document.getElementById('m-billing-preview').style.display = 'none'; return; }
-  const r = c.rates.find(x => x.type === type);
+  const r = findClientRate(c, type);
   if (!r) return;
   const b = calcBillableHours(start, end, r.minHours);
   const svc = b.billableHours * r.rate;
@@ -1760,7 +1769,7 @@ function saveAssignment() {
   const end = document.getElementById('m-end').value;
   if (!cid || !type || !date || !patientName || !start || !end) { showToast('⚠️', 'Fill all required fields'); return; }
   const c = clients.find(x => x.id === cid);
-  const r = c.rates.find(x => x.type === type);
+  const r = findClientRate(c, type);
   const b = calcBillableHours(start, end, r.minHours);
   const miles = parseFloat(document.getElementById('m-miles').value) || 0;
   const svc = b.billableHours * r.rate;
@@ -2507,6 +2516,68 @@ function goToStep3() {
   });
 }
 
+// ── SHARED INVOICE RENDERING ─────────────────────────────────────
+// Builds the row markup for one line item on an invoice. Used by every
+// place an invoice gets rendered — the live preview, the reprint modal,
+// and the PDF generated for emailing — so a change to how a row looks
+// (or a fix, like escaping HTML) only ever needs to happen in one place.
+function buildInvoiceRowsHtml(items) {
+  return items.map(a => {
+    const note = a.overMin
+      ? `Actual: ${fmtMins(a.actualMins)}, billed: ${fmtMins(a.billableMins)} (15-min increments)`
+      : (a.minHours ? `${a.minHours}hr minimum guaranteed` : '');
+    const svcAmt = a.serviceAmt != null ? a.serviceAmt : (a.total - (a.mileageAmt || 0));
+    return `<tr>
+      <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
+      <td><div style="font-weight:500">${esc(a.type)} — ${esc(a.patientName)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${esc(a.location)||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + esc(note) : ''}${a.po ? ' · PO: '+esc(a.po) : ''}${invoiceStatusAndNotes(a)}</div></td>
+      <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
+      <td class="right">$${a.rate.toFixed(2)}</td>
+      <td class="right" style="font-weight:500">$${svcAmt.toFixed(2)}</td>
+    </tr>${a.mileageAmt > 0 ? `<tr><td></td><td style="font-size:12px;color:var(--ink3)">Mileage — ${a.miles} mi @ $${a.mileageRate}/mi</td><td></td><td></td><td class="right" style="font-weight:500">$${a.mileageAmt.toFixed(2)}</td></tr>` : ''}`;
+  }).join('');
+}
+
+// Builds the full invoice document markup (header, parties, line items,
+// totals, footer) from a plain options object. All three invoice surfaces
+// (live preview, reprint, emailed PDF) call this with slightly different
+// data sources but produce identical layout — previously each surface had
+// its own ~20-line copy of this template, which is exactly why the XSS fix
+// earlier had to be applied three separate times to fully close the hole
+// (and, as found just now while consolidating, one small gap —
+// interpreterIdLine going unescaped — had slipped through in this copy).
+function buildInvoiceHtml(opts) {
+  const {
+    invoiceNum, invoiceDate, dueDate, terms, statusBadgeHtml,
+    clientName, clientEmail, interpreterIdLine,
+    paymentTerms, paymentDetails,
+    rowsHtml, svcTotal, milTotal, grandTotal, notes,
+  } = opts;
+  return `
+    <div class="inv-hdr">
+      <div><div class="inv-logo">${esc(businessInfo.businessName || businessInfo.name || 'Your Business')}${businessInfo.tagline ? '<small>'+esc(businessInfo.tagline)+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${esc(businessInfo.name)}${businessInfo.addr1 ? '<br>'+esc(businessInfo.addr1) : ''}${businessInfo.addr2 ? '<br>'+esc(businessInfo.addr2) : ''}</div></div>
+      <div class="inv-meta"><strong>Invoice</strong>#${esc(invoiceNum)}<br>Date: ${fmtDateLong(invoiceDate)}<br>Due: ${dueDate ? fmtDateLong(dueDate) : '—'}<br>Terms: ${esc(terms)}${statusBadgeHtml ? '<br>' + statusBadgeHtml : ''}</div>
+    </div>
+    <div class="inv-body">
+      <div class="inv-parties">
+        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${esc(clientName)}</div><div class="inv-pdet">${esc(clientEmail || '')}${interpreterIdLine}</div></div>
+        <div><div class="inv-plbl">Payment</div><div class="inv-pname">${esc(paymentTerms)}</div><div class="inv-pdet">${esc(paymentDetails || '').split('\n').join('<br>')}</div></div>
+      </div>
+      <table class="inv-tbl">
+        <thead><tr><th style="width:120px">Date</th><th>Description</th><th class="right" style="width:60px">Hours</th><th class="right" style="width:70px">Rate</th><th class="right" style="width:90px">Amount</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <div class="inv-totals">
+        <div class="inv-trow"><span>Interpretation services</span><span>$${svcTotal.toFixed(2)}</span></div>
+        ${milTotal > 0 ? `<div class="inv-trow"><span>Mileage</span><span>$${milTotal.toFixed(2)}</span></div>` : ''}
+        <div class="inv-trow grand"><span>Total Due</span><span>$${grandTotal.toFixed(2)}</span></div>
+      </div>
+      ${notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${esc(notes)}</div>` : ''}
+    </div>
+    <div class="inv-foot"><div class="inv-foot-note">${esc(businessInfo.businessName || businessInfo.name || '')}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>`;
+}
+
+const PENDING_STATUS_BADGE = `<span style="display:inline-block;margin-top:8px;padding:4px 12px;background:var(--teal);color:white;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em">PENDING</span>`;
+
 function renderInvoice() {
   const sel = getSelected();
   const cN = document.getElementById('inv-client').value || 'Client';
@@ -2521,39 +2592,13 @@ function renderInvoice() {
   const milTotal = sel.reduce((s, a) => s + a.mileageAmt, 0);
   const grand = svcTotal + milTotal;
   const topClient = sel[0] ? clients.find(c => c.id === sel[0].clientId) : null;
-  const interpreterIdLine = topClient?.interpreterId ? `<br>Interpreter ID: ${topClient.interpreterId}` : '';
-  const rows = sel.map(a => {
-    const note = a.overMin ? `Actual: ${fmtMins(a.actualMins)}, billed: ${fmtMins(a.billableMins)} (15-min increments)` : `${a.minHours}hr minimum guaranteed`;
-    return `<tr>
-      <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
-      <td><div style="font-weight:500">${esc(a.type)} — ${esc(a.patientName)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${esc(a.location)||''} · ${fmtTime(a.start)}–${fmtTime(a.end)} · ${esc(note)}${a.po ? ' · PO: '+esc(a.po) : ''}${invoiceStatusAndNotes(a)}</div></td>
-      <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
-      <td class="right">$${a.rate.toFixed(2)}</td>
-      <td class="right" style="font-weight:500">$${a.serviceAmt.toFixed(2)}</td>
-    </tr>${a.mileageAmt > 0 ? `<tr><td></td><td style="font-size:12px;color:var(--ink3)">Mileage — ${a.miles} mi @ $${a.mileageRate}/mi</td><td></td><td></td><td class="right" style="font-weight:500">$${a.mileageAmt.toFixed(2)}</td></tr>` : ''}`;
-  }).join('');
-  document.getElementById('invoice-preview').innerHTML = `
-    <div class="inv-hdr">
-      <div><div class="inv-logo">${esc(businessInfo.businessName || businessInfo.name || 'Your Business')}${businessInfo.tagline ? '<small>'+esc(businessInfo.tagline)+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${esc(businessInfo.name)}${businessInfo.addr1 ? '<br>'+esc(businessInfo.addr1) : ''}${businessInfo.addr2 ? '<br>'+esc(businessInfo.addr2) : ''}</div></div>
-      <div class="inv-meta"><strong>Invoice</strong>#${esc(iN)}<br>Date: ${fmtDateLong(iD)}<br>Due: ${fmtDateLong(iDu)}<br>Terms: ${esc(terms)}<br><span style="display:inline-block;margin-top:8px;padding:4px 12px;background:var(--teal);color:white;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em">PENDING</span></div>
-    </div>
-    <div class="inv-body">
-      <div class="inv-parties">
-        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${esc(cN)}</div><div class="inv-pdet">${esc(cE)}${interpreterIdLine}</div></div>
-        <div><div class="inv-plbl">Payment</div><div class="inv-pname">${esc(terms)}</div><div class="inv-pdet">${esc(payment).split('\n').join('<br>')}</div></div>
-      </div>
-      <table class="inv-tbl">
-        <thead><tr><th style="width:120px">Date</th><th>Description</th><th class="right" style="width:60px">Hours</th><th class="right" style="width:70px">Rate</th><th class="right" style="width:90px">Amount</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div class="inv-totals">
-        <div class="inv-trow"><span>Interpretation services</span><span>$${svcTotal.toFixed(2)}</span></div>
-        ${milTotal > 0 ? `<div class="inv-trow"><span>Mileage</span><span>$${milTotal.toFixed(2)}</span></div>` : ''}
-        <div class="inv-trow grand"><span>Total Due</span><span>$${grand.toFixed(2)}</span></div>
-      </div>
-      ${notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${esc(notes)}</div>` : ''}
-    </div>
-    <div class="inv-foot"><div class="inv-foot-note">${esc(businessInfo.businessName || businessInfo.name || '')}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>`;
+  const interpreterIdLine = topClient?.interpreterId ? `<br>Interpreter ID: ${esc(topClient.interpreterId)}` : '';
+  document.getElementById('invoice-preview').innerHTML = buildInvoiceHtml({
+    invoiceNum: iN, invoiceDate: iD, dueDate: iDu, terms, statusBadgeHtml: PENDING_STATUS_BADGE,
+    clientName: cN, clientEmail: cE, interpreterIdLine,
+    paymentTerms: terms, paymentDetails: payment,
+    rowsHtml: buildInvoiceRowsHtml(sel), svcTotal, milTotal, grandTotal: grand, notes,
+  });
 }
 
 function deleteInvoice(historyId) {
@@ -2614,18 +2659,6 @@ function reprintInvoice(historyId) {
   const milTotal = h.snapshot.reduce((s, a) => s + (a.mileageAmt || 0), 0);
   const grand = h.total;
 
-  const rows = h.snapshot.map(a => {
-    const note = a.overMin ? `Actual: ${fmtMins(a.actualMins)}, billed: ${fmtMins(a.billableMins)} (15-min increments)` : (a.minHours ? `${a.minHours}hr minimum guaranteed` : '');
-    const svcAmt = a.serviceAmt != null ? a.serviceAmt : (a.total - (a.mileageAmt || 0));
-    return `<tr>
-      <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
-      <td><div style="font-weight:500">${esc(a.type)} — ${esc(a.patientName)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${esc(a.location)||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + esc(note) : ''}${a.po ? ' · PO: '+esc(a.po) : ''}${invoiceStatusAndNotes(a)}</div></td>
-      <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
-      <td class="right">$${a.rate.toFixed(2)}</td>
-      <td class="right" style="font-weight:500">$${svcAmt.toFixed(2)}</td>
-    </tr>${a.mileageAmt > 0 ? `<tr><td></td><td style="font-size:12px;color:var(--ink3)">Mileage — ${a.miles} mi @ $${a.mileageRate}/mi</td><td></td><td></td><td class="right" style="font-weight:500">$${a.mileageAmt.toFixed(2)}</td></tr>` : ''}`;
-  }).join('');
-
   const rollStatus = invoiceRollup(h).status;
   const statusBadgeHtml = rollStatus === 'paid'
     ? `<span style="display:inline-block;margin-top:8px;padding:4px 12px;background:var(--green);color:white;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em">PAID</span>`
@@ -2633,28 +2666,14 @@ function reprintInvoice(historyId) {
     ? `<span style="display:inline-block;margin-top:8px;padding:4px 12px;background:var(--gold2);color:white;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em">PARTIALLY PAID</span>`
     : `<span style="display:inline-block;margin-top:8px;padding:4px 12px;background:var(--ink3);color:white;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.06em">SENT</span>`;
 
-  document.getElementById('reprint-invoice-preview').innerHTML = `
-    <div class="inv-hdr">
-      <div><div class="inv-logo">${esc(businessInfo.businessName || businessInfo.name || 'Your Business')}${businessInfo.tagline ? '<small>'+esc(businessInfo.tagline)+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${esc(businessInfo.name)}${businessInfo.addr1 ? '<br>'+esc(businessInfo.addr1) : ''}${businessInfo.addr2 ? '<br>'+esc(businessInfo.addr2) : ''}</div></div>
-      <div class="inv-meta"><strong>Invoice</strong>#${esc(h.num)}<br>Date: ${fmtDateLong(h.date)}<br>Due: ${h.dueDate ? fmtDateLong(h.dueDate) : '—'}<br>Terms: ${esc(h.terms || 'Net 30')}<br>${statusBadgeHtml}</div>
-    </div>
-    <div class="inv-body">
-      <div class="inv-parties">
-        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${esc(h.client)}</div><div class="inv-pdet">${esc(h.clientEmail || '')}${h.interpreterId ? '<br>Interpreter ID: ' + esc(h.interpreterId) : ''}</div></div>
-        <div><div class="inv-plbl">Payment</div><div class="inv-pname">${esc(h.terms || 'Net 30')}</div><div class="inv-pdet">${esc(h.payment || '').split('\n').join('<br>')}</div></div>
-      </div>
-      <table class="inv-tbl">
-        <thead><tr><th style="width:120px">Date</th><th>Description</th><th class="right" style="width:60px">Hours</th><th class="right" style="width:70px">Rate</th><th class="right" style="width:90px">Amount</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div class="inv-totals">
-        <div class="inv-trow"><span>Interpretation services</span><span>$${svcTotal.toFixed(2)}</span></div>
-        ${milTotal > 0 ? `<div class="inv-trow"><span>Mileage</span><span>$${milTotal.toFixed(2)}</span></div>` : ''}
-        <div class="inv-trow grand"><span>Total Due</span><span>$${grand.toFixed(2)}</span></div>
-      </div>
-      ${h.notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${esc(h.notes)}</div>` : ''}
-    </div>
-    <div class="inv-foot"><div class="inv-foot-note">${esc(businessInfo.businessName || businessInfo.name || '')}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>`;
+  const interpreterIdLine = h.interpreterId ? '<br>Interpreter ID: ' + esc(h.interpreterId) : '';
+
+  document.getElementById('reprint-invoice-preview').innerHTML = buildInvoiceHtml({
+    invoiceNum: h.num, invoiceDate: h.date, dueDate: h.dueDate, terms: h.terms || 'Net 30', statusBadgeHtml,
+    clientName: h.client, clientEmail: h.clientEmail, interpreterIdLine,
+    paymentTerms: h.terms || 'Net 30', paymentDetails: h.payment,
+    rowsHtml: buildInvoiceRowsHtml(h.snapshot), svcTotal, milTotal, grandTotal: grand, notes: h.notes,
+  });
 
   document.getElementById('reprint-modal').style.display = 'flex';
 }
@@ -2724,43 +2743,16 @@ function generateInvoicePdfForEmail(h) {
   const milTotal = h.snapshot.reduce((s, a) => s + (a.mileageAmt || 0), 0);
   const grand = h.total;
 
-  const rows = h.snapshot.map(a => {
-    const note = a.overMin ? `Actual: ${fmtMins(a.actualMins)}, billed: ${fmtMins(a.billableMins)} (15-min increments)` : (a.minHours ? `${a.minHours}hr minimum guaranteed` : '');
-    const svcAmt = a.serviceAmt != null ? a.serviceAmt : (a.total - (a.mileageAmt || 0));
-    return `<tr>
-      <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
-      <td><div style="font-weight:500">${esc(a.type)} — ${esc(a.patientName)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${esc(a.location)||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + esc(note) : ''}${a.po ? ' · PO: '+esc(a.po) : ''}${invoiceStatusAndNotes(a)}</div></td>
-      <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
-      <td class="right">$${a.rate.toFixed(2)}</td>
-      <td class="right" style="font-weight:500">$${svcAmt.toFixed(2)}</td>
-    </tr>${a.mileageAmt > 0 ? `<tr><td></td><td style="font-size:12px;color:var(--ink3)">Mileage — ${a.miles} mi @ $${a.mileageRate}/mi</td><td></td><td></td><td class="right" style="font-weight:500">$${a.mileageAmt.toFixed(2)}</td></tr>` : ''}`;
-  }).join('');
+  const interpreterIdLine = h.interpreterId ? '<br>Interpreter ID: ' + esc(h.interpreterId) : '';
 
   const container = document.createElement('div');
   container.style.cssText = 'position:fixed;left:-9999px;top:0;width:760px;background:white;';
-  container.innerHTML = `<div class="inv-wrap">
-    <div class="inv-hdr">
-      <div><div class="inv-logo">${esc(businessInfo.businessName || businessInfo.name || 'Your Business')}${businessInfo.tagline ? '<small>'+esc(businessInfo.tagline)+'</small>' : ''}</div><div style="margin-top:9px;font-size:11px;color:#888;line-height:1.6">${esc(businessInfo.name)}${businessInfo.addr1 ? '<br>'+esc(businessInfo.addr1) : ''}${businessInfo.addr2 ? '<br>'+esc(businessInfo.addr2) : ''}</div></div>
-      <div class="inv-meta"><strong>Invoice</strong>#${esc(h.num)}<br>Date: ${fmtDateLong(h.date)}<br>Due: ${h.dueDate ? fmtDateLong(h.dueDate) : '—'}<br>Terms: ${esc(h.terms || 'Net 30')}</div>
-    </div>
-    <div class="inv-body">
-      <div class="inv-parties">
-        <div><div class="inv-plbl">Billed to</div><div class="inv-pname">${esc(h.client)}</div><div class="inv-pdet">${esc(h.clientEmail || '')}${h.interpreterId ? '<br>Interpreter ID: ' + esc(h.interpreterId) : ''}</div></div>
-        <div><div class="inv-plbl">Payment</div><div class="inv-pname">${esc(h.terms || 'Net 30')}</div><div class="inv-pdet">${esc(h.payment || '').split('\n').join('<br>')}</div></div>
-      </div>
-      <table class="inv-tbl">
-        <thead><tr><th style="width:120px">Date</th><th>Description</th><th class="right" style="width:60px">Hours</th><th class="right" style="width:70px">Rate</th><th class="right" style="width:90px">Amount</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div class="inv-totals">
-        <div class="inv-trow"><span>Interpretation services</span><span>$${svcTotal.toFixed(2)}</span></div>
-        ${milTotal > 0 ? `<div class="inv-trow"><span>Mileage</span><span>$${milTotal.toFixed(2)}</span></div>` : ''}
-        <div class="inv-trow grand"><span>Total Due</span><span>$${grand.toFixed(2)}</span></div>
-      </div>
-      ${h.notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${esc(h.notes)}</div>` : ''}
-    </div>
-    <div class="inv-foot"><div class="inv-foot-note">${esc(businessInfo.businessName || businessInfo.name || '')}</div><div class="inv-foot-note">Thank you for your business.<br><span style="font-size:9px;opacity:.6;">Powered by Novium</span></div></div>
-  </div>`;
+  container.innerHTML = `<div class="inv-wrap">${buildInvoiceHtml({
+    invoiceNum: h.num, invoiceDate: h.date, dueDate: h.dueDate, terms: h.terms || 'Net 30', statusBadgeHtml: '',
+    clientName: h.client, clientEmail: h.clientEmail, interpreterIdLine,
+    paymentTerms: h.terms || 'Net 30', paymentDetails: h.payment,
+    rowsHtml: buildInvoiceRowsHtml(h.snapshot), svcTotal, milTotal, grandTotal: grand, notes: h.notes,
+  })}</div>`;
   document.body.appendChild(container);
 
   html2canvas(container, { scale: 1.5, backgroundColor: '#ffffff' }).then(canvas => {
