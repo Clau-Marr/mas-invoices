@@ -899,6 +899,16 @@ let silentAuthInProgress = false;
 // or any totals, so it can't interfere with accounting.
 let manualSentOverrides = [];
 
+// ── NORMALIZED-TABLE SYNC TRACKING ───────────────────────
+// Snapshots of what was last successfully written to the clients/
+// assignments/invoice_history tables, keyed by id. saveToCloud() diffs the
+// current in-memory arrays against these on every save, so a normal edit
+// sends only the handful of rows that actually changed — not the entire
+// client list and invoice history over again every time.
+let lastSyncedClients = new Map();
+let lastSyncedAssignments = new Map();
+let lastSyncedHistory = new Map();
+
 // ── STATUS CONSTANTS ──────────────────────────────────────
 // status: 'logged' | 'invoice_submitted' | 'paid'
 // billingFreq: 'single' | 'weekly' | 'monthly'
@@ -929,20 +939,129 @@ function saveData() {
   if (accessToken) saveToDrive();
 }
 
-// Sends the full data bundle to this account's row in the cloud database.
-// upsert() creates the row the first time, and updates it every time after.
+// ── ROW ↔ APP-OBJECT MAPPING ─────────────────────────────
+// Each table pulls out the columns worth being able to query/sort/filter on
+// directly (client_id, status, invoice date, invoice number, totals) and
+// keeps everything else — all the fields specific to this app's own
+// business logic — in a single `data` jsonb column. This is a deliberate
+// middle ground: real columns for what the database itself ever needs to
+// know about, jsonb for the rest, so adding a new field to an assignment or
+// invoice later doesn't require a schema migration.
+function clientToRow(c) {
+  return {
+    id: c.id, user_id: currentUser.id, name: c.name, email: c.email || null,
+    contact: c.contact || null, mileage_rate: c.mileageRate || 0,
+    interpreter_id: c.interpreterId || null, address: c.address || null,
+    billing_freq: c.billingFreq || 'single', rates: c.rates || [],
+  };
+}
+function rowToClient(r) {
+  return {
+    id: r.id, name: r.name, email: r.email || '', contact: r.contact || '',
+    mileageRate: r.mileage_rate || 0, interpreterId: r.interpreter_id || '',
+    address: r.address || '', billingFreq: r.billing_freq || 'single',
+    rates: r.rates || [],
+  };
+}
+
+function assignmentToRow(a) {
+  const { id, clientId, status, date, ...rest } = a;
+  return { id, user_id: currentUser.id, client_id: clientId || null, status: status || 'logged', invoice_date: date || null, data: rest };
+}
+function rowToAssignment(r) {
+  return { id: r.id, clientId: r.client_id, status: r.status, date: r.invoice_date, ...r.data };
+}
+
+function historyToRow(h) {
+  const { id, num, client, total, ...rest } = h;
+  return { id, user_id: currentUser.id, invoice_num: num, client_name: client, total: total || 0, data: rest };
+}
+function rowToHistory(r) {
+  return { id: r.id, num: r.invoice_num, client: r.client_name, total: r.total, ...r.data };
+}
+
+// Diffs one in-memory array against what was last written to its table, and
+// sends only the rows that are new or actually changed, plus deletes for
+// anything removed — instead of re-uploading the whole array every save.
+async function syncTableToCloud(tableName, currentArray, lastSyncedMap, toRowFn) {
+  const currentIds = new Set(currentArray.map(x => x.id));
+  const toDeleteIds = [...lastSyncedMap.keys()].filter(id => !currentIds.has(id));
+  const changedRows = currentArray
+    .filter(x => JSON.stringify(x) !== JSON.stringify(lastSyncedMap.get(x.id)))
+    .map(toRowFn);
+
+  if (changedRows.length) {
+    const { error } = await supabaseClient.from(tableName).upsert(changedRows);
+    if (error) { console.log(tableName + ' sync error:', error.message); return; }
+  }
+  if (toDeleteIds.length) {
+    const { error } = await supabaseClient.from(tableName).delete().in('id', toDeleteIds);
+    if (error) { console.log(tableName + ' delete error:', error.message); return; }
+  }
+
+  // Only mark these as "synced" after both calls above succeeded, so a
+  // failed save gets retried in full next time rather than silently assumed
+  // to have gone through.
+  lastSyncedMap.clear();
+  currentArray.forEach(x => lastSyncedMap.set(x.id, JSON.parse(JSON.stringify(x))));
+}
+
+// Sends whatever has changed to each of the four places this account's data
+// lives: the three normalized tables (clients/assignments/invoice_history),
+// plus a small settings row (businessInfo, manualSentOverrides, invCounter)
+// that's cheap enough to just upsert in full every time.
 async function saveToCloud() {
   if (!currentUser) return;
-  const bundle = { clients, history, invCounter, trackedAssignments, businessInfo, manualSentOverrides };
   try {
-    const { error } = await supabaseClient.from('user_data').upsert({
-      user_id: currentUser.id,
-      data: bundle,
-      updated_at: new Date().toISOString()
-    });
-    if (error) console.log('Cloud save error:', error.message);
+    await Promise.all([
+      syncTableToCloud('clients', clients, lastSyncedClients, clientToRow),
+      syncTableToCloud('assignments', trackedAssignments, lastSyncedAssignments, assignmentToRow),
+      syncTableToCloud('invoice_history', history, lastSyncedHistory, historyToRow),
+      supabaseClient.from('user_data').upsert({
+        user_id: currentUser.id,
+        data: { businessInfo, manualSentOverrides, invCounter },
+        updated_at: new Date().toISOString()
+      }),
+    ]);
   } catch (e) {
     console.log('Cloud save error:', e);
+  }
+}
+
+// One-time move from the old single-blob format to the normalized tables.
+// Only ever runs for an account whose data is still living entirely inside
+// user_data.data — assumes clients/trackedAssignments/history are already
+// populated in memory (from applyLoadedData) before this is called. The old
+// blob is never deleted; it's simply not read from again after this point,
+// so it stays as a harmless extra backup during the transition.
+async function migrateToNormalizedTables() {
+  try {
+    if (clients.length) {
+      const { error } = await supabaseClient.from('clients').upsert(clients.map(clientToRow));
+      if (error) throw error;
+    }
+    if (trackedAssignments.length) {
+      const { error } = await supabaseClient.from('assignments').upsert(trackedAssignments.map(assignmentToRow));
+      if (error) throw error;
+    }
+    if (history.length) {
+      const { error } = await supabaseClient.from('invoice_history').upsert(history.map(historyToRow));
+      if (error) throw error;
+    }
+
+    // Prime the sync snapshots so the very next saveToCloud() sees everything
+    // as already-synced, instead of re-sending what was just migrated.
+    lastSyncedClients = new Map(clients.map(c => [c.id, JSON.parse(JSON.stringify(c))]));
+    lastSyncedAssignments = new Map(trackedAssignments.map(a => [a.id, JSON.parse(JSON.stringify(a))]));
+    lastSyncedHistory = new Map(history.map(h => [h.id, JSON.parse(JSON.stringify(h))]));
+
+    await supabaseClient.from('user_data').upsert({
+      user_id: currentUser.id,
+      data: { businessInfo, manualSentOverrides, invCounter },
+      updated_at: new Date().toISOString()
+    });
+  } catch (e) {
+    console.log('Migration to normalized tables error:', e);
   }
 }
 
@@ -1060,25 +1179,53 @@ function showDriveSaveIndicator() {
 // that as the starting point and immediately pushes it up to the cloud so
 // it's available on every device from then on.
 async function loadData() {
-  let cloudData = null;
+  let loadedFromTables = false;
   try {
-    const { data, error } = await supabaseClient
-      .from('user_data')
-      .select('data')
-      .eq('user_id', currentUser.id)
-      .maybeSingle();
-    if (!error && data) cloudData = data.data;
+    const [clientsRes, assignmentsRes, historyRes, settingsRes] = await Promise.all([
+      supabaseClient.from('clients').select('*').eq('user_id', currentUser.id),
+      supabaseClient.from('assignments').select('*').eq('user_id', currentUser.id),
+      supabaseClient.from('invoice_history').select('*').eq('user_id', currentUser.id),
+      supabaseClient.from('user_data').select('data').eq('user_id', currentUser.id).maybeSingle(),
+    ]);
+
+    const newClients = clientsRes.data || [];
+    const newAssignments = assignmentsRes.data || [];
+    const newHistory = historyRes.data || [];
+    const settingsBlob = settingsRes.data?.data || {};
+
+    if (newClients.length || newAssignments.length || newHistory.length) {
+      // Already on the normalized tables (the common case from here on) —
+      // just load them directly.
+      applyLoadedData({
+        clients: newClients.map(rowToClient),
+        trackedAssignments: newAssignments.map(rowToAssignment),
+        history: newHistory.map(rowToHistory),
+        businessInfo: settingsBlob.businessInfo,
+        manualSentOverrides: settingsBlob.manualSentOverrides,
+        invCounter: settingsBlob.invCounter,
+      });
+      lastSyncedClients = new Map(clients.map(c => [c.id, JSON.parse(JSON.stringify(c))]));
+      lastSyncedAssignments = new Map(trackedAssignments.map(a => [a.id, JSON.parse(JSON.stringify(a))]));
+      lastSyncedHistory = new Map(history.map(h => [h.id, JSON.parse(JSON.stringify(h))]));
+      loadedFromTables = true;
+    } else if (settingsBlob.clients?.length || settingsBlob.history?.length || settingsBlob.trackedAssignments?.length) {
+      // One-time migration: this account's data is still sitting in the old
+      // single-blob format from before the normalized tables existed. Load
+      // it as before, then copy it into the new tables — the old blob is
+      // left in place afterward, untouched, as an extra backup.
+      applyLoadedData(settingsBlob);
+      await migrateToNormalizedTables();
+      loadedFromTables = true;
+    }
   } catch (e) {
     console.log('Cloud load error:', e);
   }
 
-  if (cloudData && Object.keys(cloudData).length > 0) {
-    applyLoadedData(cloudData);
-  } else {
+  if (!loadedFromTables) {
     const migrated = loadFromLocalStorage();
     if (migrated) {
       showToast('☁️', 'Existing data found on this device — saving it to your account…');
-      saveToCloud();
+      saveData();
     }
   }
 
