@@ -1034,8 +1034,34 @@ async function saveToCloud() {
 // populated in memory (from applyLoadedData) before this is called. The old
 // blob is never deleted; it's simply not read from again after this point,
 // so it stays as a harmless extra backup during the transition.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function migrateToNormalizedTables() {
   try {
+    // Ids created before this migration (by the old short-string uid())
+    // aren't valid Postgres uuids, which is what made the first migration
+    // attempt fail outright. Remap any non-uuid id to a freshly generated
+    // one here, keeping every cross-reference — an assignment's clientId
+    // pointing at a client, for instance — consistent with the new ids.
+    // Ids already in proper uuid form (anything created after the uid()
+    // fix) are left untouched.
+    const clientIdMap = new Map();
+    clients = clients.map(c => {
+      if (UUID_RE.test(c.id)) return c;
+      const newId = uid();
+      clientIdMap.set(c.id, newId);
+      return { ...c, id: newId };
+    });
+    trackedAssignments = trackedAssignments.map(a => ({
+      ...a,
+      id: UUID_RE.test(a.id) ? a.id : uid(),
+      clientId: clientIdMap.get(a.clientId) || a.clientId,
+    }));
+    history = history.map(h => ({
+      ...h,
+      id: UUID_RE.test(h.id) ? h.id : uid(),
+    }));
+
     if (clients.length) {
       const { error } = await supabaseClient.from('clients').upsert(clients.map(clientToRow));
       if (error) throw error;
@@ -1060,6 +1086,10 @@ async function migrateToNormalizedTables() {
       data: { businessInfo, manualSentOverrides, invCounter },
       updated_at: new Date().toISOString()
     });
+
+    // Refresh the local cache too, so a reload before this account's next
+    // cloud round-trip doesn't show stale (pre-remap) ids from localStorage.
+    saveData();
   } catch (e) {
     console.log('Migration to normalized tables error:', e);
   }
@@ -3903,7 +3933,18 @@ function setStep(n) { [1,2,3].forEach(i => { const s = document.getElementById('
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
 // ── UTILS ─────────────────────────────────────────────────
-function uid() { return Math.random().toString(36).slice(2,9); }
+// Generates a real UUID (the format Postgres's `uuid` column type requires
+// for the clients/assignments/invoice_history tables' primary keys) rather
+// than the short random string this used to return — that mismatch is
+// exactly what caused the normalized-table migration to fail on its first
+// attempt with "invalid input syntax for type uuid".
+function uid() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 // Escapes a value for safe insertion into HTML built via template literals.
 // Data like patient names and locations can come from Google Calendar
 // events — a source outside this app's control — so anything user- or
