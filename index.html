@@ -206,8 +206,20 @@ textarea{resize:vertical;min-height:70px;}
   #reprint-modal{position:static!important;background:none!important;padding:0!important;display:block!important;}
   #reprint-modal .modal{max-height:none!important;overflow:visible!important;box-shadow:none!important;padding:0!important;max-width:none!important;}
   #reprint-modal .modal > div:first-child{display:none!important;}
+  /* Same treatment for the Year-End Report modal, and same reasoning: without
+     scoping this specifically to #year-report-modal, printing from it would
+     either hide the report too (if using the general .modal-bg rule below)
+     or force EVERY modal in the app to show up in the printout (if using an
+     unscoped override) — this modal's selectors intentionally mirror
+     #reprint-modal's above rather than sharing a class with it, since the two
+     need different content shown/hidden (this one keeps its year dropdown
+     out of the printout too). */
+  #year-report-modal{position:static!important;background:none!important;padding:0!important;display:block!important;}
+  #year-report-modal .modal{max-height:none!important;overflow:visible!important;box-shadow:none!important;padding:0!important;max-width:none!important;}
+  #year-report-modal .modal > div:first-child{display:none!important;}
+  #year-report-modal label,#year-report-modal select{display:none!important;}
   /* Every OTHER modal must stay fully hidden during print, no matter what */
-  .modal-bg:not(#reprint-modal){display:none!important;}
+  .modal-bg:not(#reprint-modal):not(#year-report-modal){display:none!important;}
   /* When printing from the Reprint Invoice popup, hide the entire underlying
      app UI — whatever tab was open behind it (History, Clients, Outstanding,
      etc.). Printing doesn't respect on-screen overlay stacking the way the
@@ -215,6 +227,7 @@ textarea{resize:vertical;min-height:70px;}
      currently visible — so without this, that tab's content prints right
      alongside the invoice. */
   body:has(#reprint-modal[style*="flex"]) .app{display:none!important;}
+  body:has(#year-report-modal[style*="flex"]) .app{display:none!important;}
 }
 </style>
 </head>
@@ -396,6 +409,9 @@ textarea{resize:vertical;min-height:70px;}
     </div>
     <button class="btn btn-outline btn-sm" style="margin-bottom:20px;" onclick="toggleMonthlySummary()">
       <span id="monthly-summary-chevron">▸</span> 📊 Monthly summary
+    </button>
+    <button class="btn btn-outline btn-sm" style="margin-bottom:20px;margin-left:8px;" onclick="openYearReportModal()">
+      📅 Year-end report
     </button>
     <div id="monthly-summary-card" style="display:none;margin-bottom:20px;"></div>
   </div>
@@ -615,6 +631,40 @@ textarea{resize:vertical;min-height:70px;}
     </div>
   </div>
   <div class="inv-wrap" id="reprint-invoice-preview"></div>
+</div>
+</div>
+
+<!-- MODAL: YEAR-END REPORT -->
+<div class="modal-bg" id="year-report-modal" style="display:none" onclick="if(event.target===this)closeModal('year-report-modal')">
+<div class="modal" style="max-width:640px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+    <div class="modal-title" style="margin-bottom:0;">Year-end report</div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-outline btn-sm" onclick="window.print()">🖨 Print / Save PDF</button>
+      <button class="btn btn-outline btn-sm" onclick="exportYearReportCSV()">⬇ Export CSV</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('year-report-modal')">✕ Close</button>
+    </div>
+  </div>
+  <div style="margin-bottom:18px;">
+    <label style="display:block;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);margin-bottom:4px;">Year</label>
+    <select id="year-report-select" onchange="renderYearReport()" style="width:auto;font-size:13px;padding:6px 10px;"></select>
+  </div>
+  <div id="year-report-body">
+    <div class="sum-bar" style="margin-bottom:20px;">
+      <div class="sum-item"><div class="sum-lbl">Total invoiced</div><div class="sum-val" id="yr-total-invoiced">$0.00</div></div>
+      <div class="sum-item"><div class="sum-lbl">Total received</div><div class="sum-val" id="yr-total-received">$0.00</div></div>
+      <div class="sum-item"><div class="sum-lbl">Outstanding</div><div class="sum-val" id="yr-total-outstanding">$0.00</div></div>
+      <div class="sum-item"><div class="sum-lbl">Invoices</div><div class="sum-val" id="yr-invoice-count">0</div></div>
+    </div>
+    <div class="sum-bar" style="margin-bottom:20px;">
+      <div class="sum-item"><div class="sum-lbl">Miles driven</div><div class="sum-val" id="yr-total-miles">0</div></div>
+      <div class="sum-item"><div class="sum-lbl">Mileage billed</div><div class="sum-val" id="yr-total-mileage-billed">$0.00</div></div>
+    </div>
+    <table class="inv-tbl">
+      <thead><tr><th>Client</th><th class="right">Invoiced</th><th class="right">Received</th><th class="right">Outstanding</th></tr></thead>
+      <tbody id="yr-client-rows"></tbody>
+    </table>
+  </div>
 </div>
 </div>
 
@@ -3527,6 +3577,122 @@ function exportMonthlySummaryCSV() {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   showToast('✅', 'Monthly summary exported');
+}
+
+// ── YEAR-END REPORT ───────────────────────────────────────
+// Every number here reuses the exact same source-of-truth helpers as the
+// monthly summary (invoiceAssignments/amountReceivedFor/remainingOwedFor)
+// and the mileage log (getMileageEntries) — just grouped by year and, for
+// the client breakdown, by client too — rather than introducing a second
+// way of computing the same totals.
+function getReportYears() {
+  const years = new Set();
+  history.forEach(h => { const y = (h.date || '').slice(0, 4); if (y) years.add(y); });
+  getMileageEntries().forEach(a => { const y = (a.date || '').slice(0, 4); if (y) years.add(y); });
+  return Array.from(years).sort().reverse();
+}
+
+function computeYearReport(year) {
+  const byClient = {};
+  let totalInvoiced = 0, totalReceived = 0, totalOutstanding = 0, invoiceCount = 0;
+
+  history.forEach(h => {
+    if ((h.date || '').slice(0, 4) !== year) return;
+    invoiceCount += 1;
+    totalInvoiced += h.total;
+    if (!byClient[h.client]) byClient[h.client] = { invoiced: 0, received: 0, outstanding: 0 };
+    byClient[h.client].invoiced += h.total;
+    invoiceAssignments(h).forEach(a => {
+      const received = amountReceivedFor(a);
+      const owed = remainingOwedFor(a);
+      totalReceived += received;
+      totalOutstanding += owed;
+      byClient[h.client].received += received;
+      byClient[h.client].outstanding += owed;
+    });
+  });
+
+  const mileageEntries = getMileageEntries().filter(a => (a.date || '').slice(0, 4) === year);
+  const totalMiles = mileageEntries.reduce((s, a) => s + (a.miles || 0), 0);
+  const totalMileageBilled = mileageEntries.reduce((s, a) => s + (a.mileageAmt || 0), 0);
+
+  return {
+    year, invoiceCount, totalInvoiced, totalReceived, totalOutstanding,
+    totalMiles, totalMileageBilled, byClient,
+    clients: Object.keys(byClient).sort(),
+  };
+}
+
+let lastYearReport = null;
+
+function openYearReportModal() {
+  const years = getReportYears();
+  if (!years.length) { showToast('⚠️', 'No invoice history yet'); return; }
+  const sel = document.getElementById('year-report-select');
+  sel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+  document.getElementById('year-report-modal').style.display = 'flex';
+  renderYearReport();
+}
+
+function renderYearReport() {
+  const year = document.getElementById('year-report-select').value;
+  const r = computeYearReport(year);
+  lastYearReport = r;
+
+  document.getElementById('yr-total-invoiced').textContent = '$' + r.totalInvoiced.toFixed(2);
+  document.getElementById('yr-total-received').textContent = '$' + r.totalReceived.toFixed(2);
+  document.getElementById('yr-total-outstanding').textContent = '$' + r.totalOutstanding.toFixed(2);
+  document.getElementById('yr-invoice-count').textContent = r.invoiceCount;
+  document.getElementById('yr-total-miles').textContent = r.totalMiles % 1 === 0 ? r.totalMiles : r.totalMiles.toFixed(1);
+  document.getElementById('yr-total-mileage-billed').textContent = '$' + r.totalMileageBilled.toFixed(2);
+
+  const tbody = document.getElementById('yr-client-rows');
+  if (!r.clients.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--ink3);padding:20px;">No invoices for this year</td></tr>';
+    return;
+  }
+  tbody.innerHTML = r.clients.map(cName => {
+    const b = r.byClient[cName];
+    return `<tr>
+      <td>${esc(cName)}</td>
+      <td class="right">$${b.invoiced.toFixed(2)}</td>
+      <td class="right" style="color:var(--green);">$${b.received.toFixed(2)}</td>
+      <td class="right" style="color:${b.outstanding > 0.005 ? 'var(--red)' : 'var(--ink3)'};">$${b.outstanding.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function exportYearReportCSV() {
+  const r = lastYearReport;
+  if (!r) return;
+  const escapeCsv = (v) => { const s = String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const rows = [
+    ['Year-end report', r.year],
+    [],
+    ['Total Invoiced', r.totalInvoiced.toFixed(2)],
+    ['Total Received', r.totalReceived.toFixed(2)],
+    ['Total Outstanding', r.totalOutstanding.toFixed(2)],
+    ['Invoice Count', r.invoiceCount],
+    ['Miles Driven', r.totalMiles],
+    ['Mileage Billed', r.totalMileageBilled.toFixed(2)],
+    [],
+    ['Client', 'Invoiced', 'Received', 'Outstanding'],
+    ...r.clients.map(cName => {
+      const b = r.byClient[cName];
+      return [cName, b.invoiced.toFixed(2), b.received.toFixed(2), b.outstanding.toFixed(2)];
+    }),
+  ];
+  const csvContent = rows.map(row => row.map(escapeCsv).join(',')).join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `MAS-year-end-report-${r.year}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('✅', 'Year-end report exported');
 }
 
 function renderInvoiceAssignmentRows(h) {
