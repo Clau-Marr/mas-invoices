@@ -1664,7 +1664,18 @@ function parseEvent(ev, ctx) {
     rateInfo, billing,
     matched: !!client,
     suggestion,
-    alreadyStatus: alreadyTracked ? alreadyTracked.status : null,
+    alreadyStatus: alreadyTracked
+      ? (alreadyTracked.status === 'invoice_submitted' || alreadyTracked.status === 'paid'
+          ? alreadyTracked.status
+          // The status field itself doesn't say "already billed" — but check
+          // the actual invoice records directly before trusting that. If this
+          // assignment's id genuinely appears in a real invoice, treat it as
+          // billed for warning purposes regardless of what status says,
+          // rather than silently showing it as fresh, unbilled work.
+          : ctx.idsInInvoices.has(alreadyTracked.id)
+            ? (amountReceivedFor(alreadyTracked) >= alreadyTracked.total - PAID_EPSILON ? 'paid' : 'invoice_submitted')
+            : alreadyTracked.status)
+      : null,
     isNoShow
   };
 }
@@ -1686,7 +1697,17 @@ function buildEventMatchContext() {
     if (!trackedByDate.has(t.date)) trackedByDate.set(t.date, []);
     trackedByDate.get(t.date).push(t);
   });
-  return { clientsNormalized, trackedByDate };
+  // Every assignment id that's actually part of a real, sent invoice — the
+  // authoritative source of truth for "has this genuinely been billed,"
+  // independent of whatever the assignment's own status field currently
+  // says. Needed because that status field can end up wrong (a bug, a
+  // mis-click, a data repair gone slightly sideways) while the assignment
+  // is still correctly sitting inside a real invoice — and when that
+  // happens, checking status alone would wrongly show it as fresh, unbilled
+  // work on the next calendar re-import.
+  const idsInInvoices = new Set();
+  history.forEach(h => (h.snapshot || []).forEach(s => idsInInvoices.add(s.id)));
+  return { clientsNormalized, trackedByDate, idsInInvoices };
 }
 
 // Normalizes text for matching: folds accented letters to their plain equivalent
