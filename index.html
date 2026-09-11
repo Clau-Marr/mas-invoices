@@ -1510,7 +1510,7 @@ function parseEvent(ev, ctx) {
   // ── Flexible separator: handles em-dash, hyphen, double-hyphen, with or without spaces
   // This covers what phones autocorrect to, e.g. "—" → "-" or "--"
   const raw = ev.summary.trim();
-  const parts = raw.split(/\s*(?:—|--|–|-)\s*/).map(p => p.trim()).filter(Boolean);
+  const parts = raw.split(/\s+(?:—|--|-)\s+/).map(p => p.trim()).filter(Boolean);
 
   if (parts.length < 3) return null;
 
