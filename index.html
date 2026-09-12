@@ -1510,16 +1510,13 @@ function parseEvent(ev, ctx) {
   // ── Flexible separator: handles em-dash, hyphen, double-hyphen, with or without spaces
   // This covers what phones autocorrect to, e.g. "—" → "-" or "--"
   const raw = ev.summary.trim();
-  const parts = raw.split(/\s+(?:—|--|-)\s+/).map(p => p.trim()).filter(Boolean);
-
-  if (parts.length < 3) return null;
-
-  const agencyName = parts[0];
-  const assignType = parts[1];
-  const patientName = parts[2];
-  let po = '';
-  if (parts[3] && parts[3].toUpperCase().startsWith('PO:')) po = parts[3].replace(/^PO:/i, '').trim();
-
+  const m = raw.match(/^(.*?)\s*(?:—|--|-)\s*(.*?)\s*(?:—|--|-)\s*(.*?)(?:\s*(?:—|--|-)\s*(.*))?$/);
+if (!m) return null;
+const agencyName = m[1].trim();
+const assignType = m[2].trim();
+const patientName = m[3].trim();
+let po = '';
+if (m[4] && m[4].toUpperCase().startsWith('PO:')) po = m[4].replace(/^PO:/i, '').trim();
   const date = ev.start.date || (ev.start.dateTime ? toPacificDate(ev.start.dateTime) : '');
   const startTime = ev.start.dateTime ? toPacificTime(ev.start.dateTime) : '';
   const endTime = ev.end?.dateTime ? toPacificTime(ev.end.dateTime) : '';
