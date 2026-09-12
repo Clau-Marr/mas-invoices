@@ -20,6 +20,7 @@
   --r:10px;--r-sm:6px;
   --sh:0 1px 3px rgba(22,19,15,.06),0 4px 12px rgba(22,19,15,.07);
   --sh-lg:0 8px 32px rgba(22,19,15,.13);
+  
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Inter',sans-serif;background:var(--canvas);color:var(--ink);min-height:100vh;font-size:14px;line-height:1.5;}
@@ -427,7 +428,7 @@ textarea{resize:vertical;min-height:70px;}
     <div class="page-title">Outstanding Assignments</div>
     <div class="page-sub">Every invoiced assignment still waiting on payment, across all clients.</div>
   </div>
- <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;position:sticky;top:0;background:var(--canvas, #fff);z-index:10;padding:10px 0;">
+ <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;position:sticky;top:58px;background:var(--canvas, #fff);z-index:10;padding:10px 0;">
 <input type="text" id="outstanding-search" list="outstanding-search-list" placeholder="🔍 Jump to agency…" oninput="jumpToOutstandingAgency()" onkeydown="if(event.key==='Enter')jumpToOutstandingAgency()" style="max-width:320px;"><button type="button" onclick="document.getElementById('outstanding-search').value='';jumpToOutstandingAgency();document.getElementById('outstanding-search').focus();" style="margin-left:4px;padding:6px 12px;border-radius:6px;border:1px solid #ccc;background:white;cursor:pointer;" title="Clear search">✕</button>
     <datalist id="outstanding-search-list"></datalist>
   </div>
