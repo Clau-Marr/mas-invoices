@@ -427,8 +427,8 @@ textarea{resize:vertical;min-height:70px;}
     <div class="page-title">Outstanding Assignments</div>
     <div class="page-sub">Every invoiced assignment still waiting on payment, across all clients.</div>
   </div>
-  <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;">
-    <input type="text" id="outstanding-search" list="outstanding-search-list" placeholder="🔍 Jump to agency…" oninput="jumpToOutstandingAgency()" onkeydown="if(event.key==='Enter')jumpToOutstandingAgency()" style="max-width:320px;">
+ <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;position:sticky;top:0;background:var(--canvas, #fff);z-index:10;padding:10px 0;">
+<input type="text" id="outstanding-search" list="outstanding-search-list" placeholder="🔍 Jump to agency…" oninput="jumpToOutstandingAgency()" onkeydown="if(event.key==='Enter')jumpToOutstandingAgency()" style="max-width:320px;"><button type="button" onclick="document.getElementById('outstanding-search').value='';jumpToOutstandingAgency();document.getElementById('outstanding-search').focus();" style="margin-left:4px;padding:6px 12px;border-radius:6px;border:1px solid #ccc;background:white;cursor:pointer;" title="Clear search">✕</button>
     <datalist id="outstanding-search-list"></datalist>
   </div>
   <div id="outstanding-summary" style="display:none;">
