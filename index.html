@@ -945,6 +945,10 @@ let realClientsBackup = null;
 // should just get deselected from the draft, not deleted.
 let pendingNewAssignmentIds = [];
 let silentAuthInProgress = false;
+// CSRF protection for the Google OAuth flow: a fresh, non-guessable value is
+// generated before each requestAccessToken() call and must match the value
+// echoed back in the token response before we trust it (RFC 6749 §10.12).
+let pendingAuthState = null;
 // Calendar event IDs the user has manually marked "already sent" — purely a visual
 // note for the import screen. Never affects trackedAssignments, invoices, history,
 // or any totals, so it can't interfere with accounting.
@@ -1381,17 +1385,26 @@ function loadFromLocalStorage() {
 }
 
 // ── GOOGLE AUTH ───────────────────────────────────────────
+// Generates a fresh, non-guessable state value and remembers it so the
+// token response can be verified against it (see pendingAuthState above).
+function newAuthState() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  pendingAuthState = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return pendingAuthState;
+}
+
 function startGoogleAuth() {
   if (typeof google === 'undefined') {
     var s = document.createElement('script');
     s.src = 'https://accounts.google.com/gsi/client';
-    s.onload = function() { initGoogleClient(); setTimeout(function(){ tokenClient.requestAccessToken(); }, 500); };
+    s.onload = function() { initGoogleClient(); setTimeout(function(){ tokenClient.requestAccessToken({ state: newAuthState() }); }, 500); };
     document.head.appendChild(s);
     showToast('🔄', 'Loading Google — click again in 3 seconds');
     return;
   }
-  if (!tokenClient) { initGoogleClient(); setTimeout(() => tokenClient && tokenClient.requestAccessToken(), 500); return; }
-  tokenClient.requestAccessToken();
+  if (!tokenClient) { initGoogleClient(); setTimeout(() => tokenClient && tokenClient.requestAccessToken({ state: newAuthState() }), 500); return; }
+  tokenClient.requestAccessToken({ state: newAuthState() });
 }
 
 function initGoogleClient() {
@@ -1399,6 +1412,15 @@ function initGoogleClient() {
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID, scope: SCOPES,
     callback: (resp) => {
+      // Verify the state echoed back matches what we sent before trusting
+      // anything else in the response — protects against CSRF (RFC 6749 §10.12).
+      const expectedState = pendingAuthState;
+      pendingAuthState = null;
+      if (!resp.state || !expectedState || resp.state !== expectedState) {
+        silentAuthInProgress = false;
+        showToast('⚠️', 'Sign-in rejected: state mismatch');
+        return;
+      }
       if (resp.error) {
         if (silentAuthInProgress) {
           // Silent auto-reconnect attempt failed quietly — no session, consent
@@ -1471,7 +1493,7 @@ function doSilentAuth() {
     // (session expired, consent revoked, etc.) it just fails quietly — the
     // callback in initGoogleClient() checks silentAuthInProgress and skips
     // showing an error toast for this case.
-    tokenClient.requestAccessToken({ prompt: 'none' });
+    tokenClient.requestAccessToken({ prompt: 'none', state: newAuthState() });
   } catch (e) {
     silentAuthInProgress = false;
   }
