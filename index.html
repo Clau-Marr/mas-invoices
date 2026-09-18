@@ -266,7 +266,7 @@ textarea{resize:vertical;min-height:70px;}
       <div id="gcal-box" class="gcal-connect">
         <div class="gcal-icon">📅</div>
         <h3>Sign in with Google</h3>
-        <p>Connect the Google account where your calendar lives. The app reads your events, bills them automatically, and can email invoices straight from your Gmail.</p>
+        <p>Connect the Google account where your calendar lives. Novium reads your calendar events (read-only) to build invoices, and saves backup copies of your data to a folder it creates in your Google Drive. If you choose to email an invoice, you'll be asked separately to allow Gmail sending — Novium can only send what you write, never read your inbox.</p>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
           <button class="btn btn-primary" id="btn-google" onclick="startGoogleAuth()">
             <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
@@ -599,7 +599,7 @@ textarea{resize:vertical;min-height:70px;}
   <input type="hidden" id="email-history-id">
   <div id="email-gmail-warning" style="display:none;margin-bottom:14px;">
     <div class="info info-gold">
-      ⚠️ Gmail isn't connected yet. <button class="btn btn-primary btn-sm" style="margin-left:6px;" onclick="startGoogleAuth()">Connect Google account</button>
+      ⚠️ Allow Novium to send this email from your Gmail. It can only send messages you write here — it can't read your inbox. <button class="btn btn-primary btn-sm" style="margin-left:6px;" onclick="connectGmail()">Allow Gmail sending</button>
     </div>
   </div>
   <div class="form-grid" style="margin-bottom:16px;">
@@ -800,7 +800,22 @@ textarea{resize:vertical;min-height:70px;}
 <script>
 // ── CONFIG ────────────────────────────────────────────────
 const CLIENT_ID = '566546508985-12fom6evof5isvjmea1nqlfm3pj82aun.apps.googleusercontent.com';
-const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/drive.file';
+// Each scope is the narrowest one that covers what the app actually calls:
+//   calendar.events.readonly — events.list on the primary calendar (no calendar list/settings)
+//   drive.file               — only files/folders this app itself creates (backups)
+//   userinfo.email/profile   — the name + email shown after connecting (fetchUserInfo)
+// Gmail is deliberately NOT in the initial set: gmail.send is requested in
+// context, the first time the user chooses to email an invoice (incremental
+// authorization). It can send messages only — it cannot read the mailbox.
+const SCOPE_CALENDAR = 'https://www.googleapis.com/auth/calendar.events.readonly';
+const SCOPE_DRIVE = 'https://www.googleapis.com/auth/drive.file';
+const SCOPE_GMAIL_SEND = 'https://www.googleapis.com/auth/gmail.send';
+const SCOPES = [
+  SCOPE_CALENDAR,
+  SCOPE_DRIVE,
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile'
+].join(' ');
 
 // ── SUPABASE CONNECTION ──────────────────────────────────
 // "supabase" here is the library loaded from the CDN script tag in <head>.
@@ -949,6 +964,13 @@ let silentAuthInProgress = false;
 // generated before each requestAccessToken() call and must match the value
 // echoed back in the token response before we trust it (RFC 6749 §10.12).
 let pendingAuthState = null;
+// Scopes the user actually approved in the last token response. Google's
+// consent screen lets people untick individual permissions, so a successful
+// sign-in does not guarantee every requested scope was granted.
+let grantedScopes = new Set();
+// Runs once after the next successful token response (e.g. to finish sending
+// an invoice after Gmail access was granted mid-flow). Cleared on every response.
+let afterAuthCallback = null;
 // Calendar event IDs the user has manually marked "already sent" — purely a visual
 // note for the import screen. Never affects trackedAssignments, invoices, history,
 // or any totals, so it can't interfere with accounting.
@@ -1154,6 +1176,9 @@ const MAX_DRIVE_BACKUPS = 3;
 
 let driveBackupTimeout = null;
 function saveToDrive() {
+  // The user can untick the Drive permission on Google's consent screen —
+  // skip quietly rather than firing requests that are guaranteed to 403.
+  if (!hasGoogleScope(SCOPE_DRIVE)) return;
   // Debounce — wait 3 seconds after last change before writing to Drive
   clearTimeout(driveBackupTimeout);
   driveBackupTimeout = setTimeout(() => {
@@ -1394,17 +1419,51 @@ function newAuthState() {
   return pendingAuthState;
 }
 
-function startGoogleAuth() {
+// opts.scope — override the scope set for this request (used to add Gmail
+//              access later without re-asking for everything else).
+// opts.after — callback run once, after a successful token response.
+function startGoogleAuth(opts) {
+  opts = opts || {};
+  const request = () => {
+    afterAuthCallback = opts.after || null;
+    const cfg = { state: newAuthState() };
+    if (opts.scope) cfg.scope = opts.scope;
+    tokenClient.requestAccessToken(cfg);
+  };
   if (typeof google === 'undefined') {
     var s = document.createElement('script');
     s.src = 'https://accounts.google.com/gsi/client';
-    s.onload = function() { initGoogleClient(); setTimeout(function(){ tokenClient.requestAccessToken({ state: newAuthState() }); }, 500); };
+    s.onload = function() { initGoogleClient(); setTimeout(request, 500); };
     document.head.appendChild(s);
     showToast('🔄', 'Loading Google — click again in 3 seconds');
     return;
   }
-  if (!tokenClient) { initGoogleClient(); setTimeout(() => tokenClient && tokenClient.requestAccessToken({ state: newAuthState() }), 500); return; }
-  tokenClient.requestAccessToken({ state: newAuthState() });
+  if (!tokenClient) { initGoogleClient(); setTimeout(() => tokenClient && request(), 500); return; }
+  request();
+}
+
+function hasGoogleScope(scope) {
+  return !!accessToken && grantedScopes.has(scope);
+}
+
+// Asks for gmail.send only when the user is about to email an invoice. If
+// they haven't connected Google yet, the base scopes are requested alongside it.
+function connectGmail() {
+  startGoogleAuth({
+    scope: accessToken ? SCOPE_GMAIL_SEND : SCOPES + ' ' + SCOPE_GMAIL_SEND,
+    after: refreshEmailGmailState
+  });
+}
+
+// Syncs the email modal's warning banner + Send button with whether Gmail
+// sending has actually been granted.
+function refreshEmailGmailState() {
+  const warning = document.getElementById('email-gmail-warning');
+  const sendBtn = document.getElementById('email-send-btn');
+  const ok = hasGoogleScope(SCOPE_GMAIL_SEND);
+  if (warning) warning.style.display = ok ? 'none' : 'block';
+  if (sendBtn) sendBtn.disabled = !(ok && pendingEmailPdfBase64);
+  if (!ok && accessToken) showToast('⚠️', 'Gmail sending wasn’t allowed — tick the Gmail permission to email invoices');
 }
 
 function initGoogleClient() {
@@ -1416,6 +1475,8 @@ function initGoogleClient() {
       // anything else in the response — protects against CSRF (RFC 6749 §10.12).
       const expectedState = pendingAuthState;
       pendingAuthState = null;
+      const after = afterAuthCallback;
+      afterAuthCallback = null;
       if (!resp.state || !expectedState || resp.state !== expectedState) {
         silentAuthInProgress = false;
         showToast('⚠️', 'Sign-in rejected: state mismatch');
@@ -1433,7 +1494,16 @@ function initGoogleClient() {
       }
       silentAuthInProgress = false;
       accessToken = resp.access_token;
+      grantedScopes = new Set((resp.scope || '').split(' ').filter(Boolean));
+      // Granular consent: the user may have unticked some permissions. Say so
+      // now, rather than letting a later API call fail with a bare 403.
+      if (!grantedScopes.has(SCOPE_CALENDAR)) {
+        showToast('⚠️', 'Calendar access wasn’t allowed — reconnect and tick the Calendar permission to import events');
+      } else if (!grantedScopes.has(SCOPE_DRIVE)) {
+        showToast('⚠️', 'Drive access wasn’t allowed — automatic Drive backups are off');
+      }
       fetchUserInfo();
+      if (after) after();
     }
   });
 }
@@ -1458,7 +1528,13 @@ function fetchUserInfo() {
 }
 
 function disconnectGoogle() {
+  // Actually revoke the grant at Google, not just forget the token locally —
+  // otherwise "Disconnect" leaves the app authorized on the user's Google account.
+  if (accessToken && typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+    try { google.accounts.oauth2.revoke(accessToken, () => {}); } catch (e) { console.log('Revoke error:', e); }
+  }
   accessToken = null;
+  grantedScopes = new Set();
   driveFolderLookup = null;
   localStorage.removeItem('mas_google_connected');
   document.getElementById('gcal-box').style.display = 'block';
@@ -1487,6 +1563,7 @@ function attemptSilentReconnect() {
 function doSilentAuth() {
   if (!tokenClient) return;
   silentAuthInProgress = true;
+  afterAuthCallback = null;
   try {
     // prompt:'none' asks Google to reissue a token using the existing browser
     // session + prior consent, with no popup/UI. If that's not possible
@@ -3041,7 +3118,7 @@ ${businessInfo.name}${businessInfo.businessName ? '\n' + businessInfo.businessNa
   // Show warning if Gmail isn't connected
   const gmailWarning = document.getElementById('email-gmail-warning');
   const sendBtn = document.getElementById('email-send-btn');
-  if (!accessToken) {
+  if (!hasGoogleScope(SCOPE_GMAIL_SEND)) {
     gmailWarning.style.display = 'block';
     sendBtn.disabled = true;
   } else {
@@ -3126,7 +3203,7 @@ function generateInvoicePdfForEmail(h) {
     if (viewBtn) viewBtn.style.display = 'inline-flex';
 
     const sendBtn = document.getElementById('email-send-btn');
-    if (sendBtn && accessToken) sendBtn.disabled = false;
+    if (sendBtn && hasGoogleScope(SCOPE_GMAIL_SEND)) sendBtn.disabled = false;
   }).catch(err => {
     document.body.removeChild(container);
     const nameEl = document.getElementById('email-attachment-name');
@@ -3145,7 +3222,7 @@ function encodeMimeHeader(text) {
 }
 
 function sendInvoiceEmail() {
-  if (!accessToken) { showToast('⚠️', 'Connect your Google account first'); return; }
+  if (!hasGoogleScope(SCOPE_GMAIL_SEND)) { showToast('⚠️', 'Allow Gmail sending first'); return; }
   if (!pendingEmailPdfBase64) { showToast('⚠️', 'PDF is still generating — wait a moment'); return; }
 
   const to = document.getElementById('email-to').value.trim();
