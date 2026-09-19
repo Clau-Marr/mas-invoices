@@ -3156,44 +3156,70 @@ function generateInvoicePdfForEmail(h) {
   })}</div>`;
   document.body.appendChild(container);
 
-  html2canvas(container, { scale: 1.5, backgroundColor: '#ffffff' }).then(canvas => {
+  // Wait for web fonts to finish loading, then pause briefly so the layout
+  // settles, before taking the screenshot. Capturing too early — before a
+  // font like Fraunces has loaded, or before a long note has finished
+  // wrapping onto its final number of lines — freezes the snapshot at a
+  // shorter height than the real content, cutting off whatever falls below
+  // that point. (A plain timeout is used rather than requestAnimationFrame,
+  // because browsers pause animation frames in background tabs, which would
+  // leave the PDF stuck "generating" if the user switched tabs.)
+  const settleFirst = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+  settleFirst
+    .then(() => new Promise(resolve => setTimeout(resolve, 150)))
+    .then(() => html2canvas(container, { scale: 1.5, backgroundColor: '#ffffff' }))
+    .then(canvas => {
     // Use JPEG compression instead of PNG — dramatically smaller file size
     // quality: 0.85 gives good visual quality while keeping file size manageable
     const imgData = canvas.toDataURL('image/jpeg', 0.85);
     const { jsPDF } = window.jspdf;
 
-    // Calculate page dimensions — split into multiple pages if invoice is tall
-    const pageWidth = canvas.width / 1.5;
-    const pageHeight = canvas.height / 1.5;
-    const maxPageHeight = pageWidth * 1.414; // A4 ratio
+    // Always build onto a real, standard US Letter page (8.5in x 11in).
+    // The old approach sized the page to the invoice image itself
+    // (~760px wide x however tall the content was). For a short invoice
+    // (1-2 assignments) the image is wider than it is tall, and jsPDF
+    // silently swaps such a page's width and height to keep it "portrait" —
+    // so the page ended up narrower than the image drawn on it, and the
+    // right-hand columns (Hours/Rate/Amount, Total Due) fell off the edge.
+    // A fixed Letter page can't be swapped. (This same fix was made once
+    // before, on Aug 24, and lost when a whole-file upload on Aug 27
+    // replaced it — keep it in place.)
+    const pdf = new jsPDF({ unit: 'pt', format: 'letter' });
+    const pageWidthPt = pdf.internal.pageSize.getWidth();
+    const pageHeightPt = pdf.internal.pageSize.getHeight();
+    const marginPt = 24;
+    const usableWidthPt = pageWidthPt - marginPt * 2;
+    const maxContentHeightPt = pageHeightPt - marginPt * 2;
 
-    if (pageHeight <= maxPageHeight) {
-      // Single page — fits on one sheet
-      const pdf = new jsPDF({ unit: 'px', format: [pageWidth, pageHeight] });
-      pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight);
-      const base64 = pdf.output('datauristring').split(',')[1];
-      pendingEmailPdfBase64 = base64;
+    const imgWidthPx = canvas.width;
+    const imgHeightPx = canvas.height;
+    const pxPerPt = imgWidthPx / usableWidthPt; // source pixels per output point, at full page width
+    const scaledHeightPt = imgHeightPx / pxPerPt;
+
+    if (scaledHeightPt <= maxContentHeightPt) {
+      // Fits on a single Letter-sized page
+      pdf.addImage(imgData, 'JPEG', marginPt, marginPt, usableWidthPt, scaledHeightPt);
     } else {
-      // Multi-page — split into A4-sized pages
-      const pdf = new jsPDF({ unit: 'px', format: [pageWidth, maxPageHeight] });
-      let yOffset = 0;
+      // Split across multiple Letter-sized pages
+      const maxSlicePx = maxContentHeightPt * pxPerPt;
+      let yOffsetPx = 0;
       let pageNum = 0;
-      while (yOffset < pageHeight) {
+      while (yOffsetPx < imgHeightPx) {
         if (pageNum > 0) pdf.addPage();
-        // Draw just the slice of the canvas that fits on this page
+        const sliceHeightPx = Math.min(maxSlicePx, imgHeightPx - yOffsetPx);
         const sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = Math.min(maxPageHeight * 1.5, canvas.height - yOffset * 1.5);
+        sliceCanvas.width = imgWidthPx;
+        sliceCanvas.height = sliceHeightPx;
         const ctx = sliceCanvas.getContext('2d');
-        ctx.drawImage(canvas, 0, yOffset * 1.5, sliceCanvas.width, sliceCanvas.height, 0, 0, sliceCanvas.width, sliceCanvas.height);
+        ctx.drawImage(canvas, 0, yOffsetPx, imgWidthPx, sliceHeightPx, 0, 0, imgWidthPx, sliceHeightPx);
         const sliceData = sliceCanvas.toDataURL('image/jpeg', 0.85);
-        pdf.addImage(sliceData, 'JPEG', 0, 0, pageWidth, sliceCanvas.height / 1.5);
-        yOffset += maxPageHeight;
+        const sliceHeightPt = sliceHeightPx / pxPerPt;
+        pdf.addImage(sliceData, 'JPEG', marginPt, marginPt, usableWidthPt, sliceHeightPt);
+        yOffsetPx += sliceHeightPx;
         pageNum++;
       }
-      const base64 = pdf.output('datauristring').split(',')[1];
-      pendingEmailPdfBase64 = base64;
     }
+    pendingEmailPdfBase64 = pdf.output('datauristring').split(',')[1];
     document.body.removeChild(container);
 
     const nameEl = document.getElementById('email-attachment-name');
