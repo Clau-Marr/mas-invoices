@@ -4490,13 +4490,13 @@ function checkBackupReminder() {
   if (!clients.length) return; // nothing to back up yet
   const last = localStorage.getItem('mas_last_backup');
   const daysSince = last ? (Date.now() - new Date(last).getTime()) / 86400000 : Infinity;
-  if (daysSince > 14) {
+  if (daysSince > 30) {
     setTimeout(() => {
       const banner = document.createElement('div');
       banner.id = 'backup-reminder-banner';
       banner.style.cssText = 'position:fixed;bottom:20px;left:20px;max-width:360px;background:white;border:1.5px solid var(--canvas3);border-radius:var(--r);box-shadow:var(--sh-lg);padding:16px 18px;z-index:150;font-size:13px;';
-      banner.innerHTML = `<div style="font-weight:600;margin-bottom:6px;">💾 Back up your data</div>
-        <div style="color:var(--ink3);margin-bottom:12px;line-height:1.5;">${last ? 'It\'s been a while since your last backup.' : 'You haven\'t downloaded a backup yet.'} Your data only lives in this browser.</div>
+      banner.innerHTML = `<div style="font-weight:600;margin-bottom:6px;">💾 Keep an extra backup copy</div>
+        <div style="color:var(--ink3);margin-bottom:12px;line-height:1.5;">${last ? 'It\'s been a while since you downloaded a backup copy.' : 'You haven\'t downloaded a backup copy yet.'} Your data is saved automatically in your Novium account — this is just an extra copy of your own to keep somewhere safe.</div>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-teal btn-sm" onclick="downloadBackup();document.getElementById('backup-reminder-banner').remove();">Download now</button>
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('backup-reminder-banner').remove();">Later</button>
