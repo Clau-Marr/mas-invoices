@@ -162,9 +162,16 @@ async function handleSignUp() {
     return;
   }
 
-  // Supabase sends a confirmation email by default. Until that's
-  // confirmed, the user isn't fully signed in yet — so we tell them
-  // to check their inbox rather than redirecting immediately.
+  // If this project auto-confirms new accounts, Supabase returns a live
+  // session right away — go straight into the app instead of telling the
+  // user to check an email that was never sent.
+  if (data && data.session) {
+    window.location.href = '/index.html';
+    return;
+  }
+
+  // Otherwise email confirmation is required: until the link is clicked the
+  // user isn't signed in yet, so tell them to check their inbox.
   showMsg('Account created! Check your email to confirm, then sign in.', 'success');
   switchTab('signin');
 }

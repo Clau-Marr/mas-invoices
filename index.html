@@ -4270,6 +4270,11 @@ function exitDemoMode() {
   clients = realClientsBackup ? JSON.parse(JSON.stringify(realClientsBackup)) : [];
   realClientsBackup = null;
   isDemoMode = false;
+  // loadDemo() also filled the import list with sample events — clear those too,
+  // or they keep showing (and could be imported) after leaving demo mode.
+  importedEvents = [];
+  renderImportedEvents();
+  document.getElementById('events-card').style.display = 'none';
   renderClients(); updateClientDropdowns();
   hideDemoBanner();
   showToast('✅', 'Back to your real clients');
