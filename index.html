@@ -362,9 +362,6 @@ textarea{resize:vertical;min-height:70px;}
         <div class="fg full"><label>Payment instructions</label>
           <textarea id="inv-payment" placeholder="Zelle: your@email.com&#10;Check payable to: Claudia Marroquin"></textarea>
         </div>
-        <div class="fg full"><label>Notes</label>
-          <textarea id="inv-notes" placeholder="Thank you for your continued business."></textarea>
-        </div>
       </div>
     </div>
     <div class="inv-wrap" id="invoice-preview"></div>
@@ -504,7 +501,6 @@ textarea{resize:vertical;min-height:70px;}
         <input type="number" id="m-miles" placeholder="0" min="0" oninput="calcBilling()" style="flex:1;">
       </div>
     </div>
-    <div class="fg"><label>Notes</label><input type="text" id="m-notes"></div>
   </div>
   <div class="modal-actions">
     <button class="btn btn-ghost" onclick="closeModal('assign-modal')">Cancel</button>
@@ -2058,13 +2054,12 @@ function openAddModal(id) {
       document.getElementById('m-start').value = a.start;
       document.getElementById('m-end').value = a.end;
       document.getElementById('m-miles').value = a.miles || 0;
-      document.getElementById('m-notes').value = a.notes || '';
       document.getElementById('m-status-flag').value = a.visitStatus || '';
       calcBilling();
     }
   } else {
     document.getElementById('m-date').value = todayStr();
-    ['m-patient','m-location','m-po','m-start','m-end','m-notes'].forEach(x => document.getElementById(x).value = '');
+    ['m-patient','m-location','m-po','m-start','m-end'].forEach(x => document.getElementById(x).value = '');
     document.getElementById('m-miles').value = 0;
     document.getElementById('m-status-flag').value = '';
   }
@@ -2175,7 +2170,7 @@ function saveAssignment() {
     start, end, billableHours: b.billableHours, actualMins: b.actualMins, billableMins: b.billableMins,
     overMin: b.overMin, rate: r.rate, minHours: r.minHours, serviceAmt: svc, miles,
     mileageRate: c.mileageRate || 0, mileageAmt: mil, total: svc + mil,
-    notes: document.getElementById('m-notes').value,
+    notes: existing ? (existing.notes || '') : '', // no Notes box any more — keep only what an older record already had
     visitStatus: document.getElementById('m-status-flag').value,
     status: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.status || initialStatus) : initialStatus,
     statusHistory: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.statusHistory || []) : [{ status: initialStatus, date: todayStr() }],
@@ -2889,7 +2884,7 @@ function goToStep3() {
   if (!document.getElementById('inv-due').value) document.getElementById('inv-due').value = addDays(todayStr(), 30);
   if (!document.getElementById('inv-num').value) document.getElementById('inv-num').value = `MAS-${new Date().getFullYear()}-${String(invCounter).padStart(3,'0')}`;
   renderInvoice();
-  ['inv-client','inv-email','inv-num','inv-date','inv-due','inv-terms','inv-payment','inv-notes'].forEach(id => {
+  ['inv-client','inv-email','inv-num','inv-date','inv-due','inv-terms','inv-payment'].forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener('input', renderInvoice);
     el.addEventListener('change', renderInvoice);
@@ -2967,7 +2962,7 @@ function renderInvoice() {
   const iDu = document.getElementById('inv-due').value || addDays(iD, 30);
   const terms = document.getElementById('inv-terms').value || 'Net 30';
   const payment = document.getElementById('inv-payment').value || '';
-  const notes = document.getElementById('inv-notes').value || 'Thank you for your continued business.';
+  const notes = ''; // free-text invoice notes were removed; the preview now matches what is actually sent
   const svcTotal = sel.reduce((s, a) => s + a.serviceAmt, 0);
   const milTotal = sel.reduce((s, a) => s + a.mileageAmt, 0);
   const grand = svcTotal + milTotal;
@@ -3306,7 +3301,7 @@ function markSent(skipReset) {
     dueDate: document.getElementById('inv-due').value,
     terms: document.getElementById('inv-terms').value,
     payment: document.getElementById('inv-payment').value,
-    notes: document.getElementById('inv-notes').value,
+    notes: '',
     total: sel.reduce((s,a) => s+a.total, 0), 
     count: sel.length,
     snapshot: sel.map(a => ({ id: a.id, patientName: a.patientName, type: a.type, date: a.date, start: a.start, end: a.end, billableHours: a.billableHours, actualMins: a.actualMins, billableMins: a.billableMins, overMin: a.overMin, minHours: a.minHours, rate: a.rate, serviceAmt: a.serviceAmt, total: a.total, miles: a.miles, mileageRate: a.mileageRate, mileageAmt: a.mileageAmt, location: a.location, po: a.po, visitStatus: a.visitStatus, notes: a.notes }))
@@ -3325,7 +3320,7 @@ function markSent(skipReset) {
   saveData();
   if (!skipReset) {
     showPanel('panel-connect'); setStep(1);
-    ['inv-client','inv-email','inv-num','inv-due','inv-notes','inv-payment'].forEach(x => document.getElementById(x).value = '');
+    ['inv-client','inv-email','inv-num','inv-due','inv-payment'].forEach(x => document.getElementById(x).value = '');
     document.getElementById('inv-date').value = '';
     showToast('✅', 'Invoice sent — status updated to Submitted');
   }
@@ -3337,7 +3332,7 @@ function markSentAndEmail() {
   if (!sel.length) { showToast('⚠️', 'Select at least one assignment'); return; }
   const newId = markSent(true); // skipReset=true so the form doesn't clear before we open Email
   showPanel('panel-connect'); setStep(1);
-  ['inv-client','inv-email','inv-num','inv-due','inv-notes','inv-payment'].forEach(x => document.getElementById(x).value = '');
+  ['inv-client','inv-email','inv-num','inv-due','inv-payment'].forEach(x => document.getElementById(x).value = '');
   document.getElementById('inv-date').value = '';
   showToast('✅', 'Invoice saved — opening email…');
   openEmailModal(newId);
