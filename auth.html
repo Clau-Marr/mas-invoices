@@ -39,6 +39,10 @@ input:focus{border-color:var(--teal);background:white;}
 .panel{display:none;}
 .panel.active{display:block;}
 .foot{text-align:center;font-size:12px;color:var(--ink3);margin-top:20px;}
+.forgot{text-align:center;margin-top:14px;font-size:13px;}
+.forgot a{color:var(--teal);text-decoration:none;cursor:pointer;}
+.forgot a:hover{text-decoration:underline;}
+.hint{font-size:13px;color:var(--ink3);margin-bottom:16px;line-height:1.5;}
 </style>
 </head>
 <body>
@@ -66,6 +70,7 @@ input:focus{border-color:var(--teal);background:white;}
         <input type="password" id="signin-password" autocomplete="current-password">
       </div>
       <button class="btn btn-primary" id="signin-btn" onclick="handleSignIn()">Sign In</button>
+      <div class="forgot"><a id="forgot-link" onclick="showForgot()">Forgot password?</a></div>
     </div>
 
     <!-- SIGN UP -->
@@ -85,6 +90,31 @@ input:focus{border-color:var(--teal);background:white;}
       <button class="btn btn-primary" id="signup-btn" onclick="handleSignUp()">Create Account</button>
     </div>
 
+    <!-- FORGOT PASSWORD -->
+    <div class="panel" id="panel-forgot">
+      <p class="hint">Enter the email you signed up with and we'll send you a link to choose a new password.</p>
+      <div class="fg">
+        <label>Email</label>
+        <input type="email" id="forgot-email" autocomplete="email">
+      </div>
+      <button class="btn btn-primary" id="forgot-btn" onclick="handleForgot()">Send reset link</button>
+      <div class="forgot"><a id="back-link" onclick="switchTab('signin')">Back to sign in</a></div>
+    </div>
+
+    <!-- SET NEW PASSWORD (reached from the link in the reset email) -->
+    <div class="panel" id="panel-newpass">
+      <p class="hint">Choose a new password for your account.</p>
+      <div class="fg">
+        <label>New password</label>
+        <input type="password" id="newpass" autocomplete="new-password" minlength="8">
+      </div>
+      <div class="fg">
+        <label>Confirm new password</label>
+        <input type="password" id="newpass-confirm" autocomplete="new-password">
+      </div>
+      <button class="btn btn-primary" id="newpass-btn" onclick="handleNewPassword()">Update password</button>
+    </div>
+
     <div class="foot" id="foot-text">Your data is private to your account and never visible to other users.</div>
   </div>
 </div>
@@ -101,14 +131,36 @@ input:focus{border-color:var(--teal);background:white;}
 const SUPABASE_URL = 'https://vgwgbpjhxugyshlezjzh.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_ORhpfM5JPtpcEy01hohzLA_dpxQ6QpB';
 
+// A password-reset email link arrives here as  auth.html#access_token=…&type=recovery
+// (or  #error=…&error_description=…  if the link is expired or already used).
+// Read it NOW, before supabase-js processes and clears the address bar, so we can
+// show the "choose a new password" form instead of sending the person into the app.
+const linkParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+let recoveryMode = linkParams.get('type') === 'recovery';
+const linkError = linkParams.get('error_description') || linkParams.get('error');
+
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Show exactly one of: signin, signup, forgot, newpass. The Sign In / Create Account
+// tabs only belong with the first two.
+function showOnly(which) {
+  ['signin', 'signup', 'forgot', 'newpass'].forEach(p => {
+    document.getElementById('panel-' + p).classList.toggle('active', p === which);
+  });
+  document.querySelector('.tabs').style.display = (which === 'signin' || which === 'signup') ? 'flex' : 'none';
+  hideMsg();
+}
 
 function switchTab(which) {
   document.getElementById('tab-signin').classList.toggle('active', which === 'signin');
   document.getElementById('tab-signup').classList.toggle('active', which === 'signup');
-  document.getElementById('panel-signin').classList.toggle('active', which === 'signin');
-  document.getElementById('panel-signup').classList.toggle('active', which === 'signup');
-  hideMsg();
+  showOnly(which);
+}
+
+function showForgot() {
+  const typed = document.getElementById('signin-email').value.trim();
+  showOnly('forgot');
+  if (typed) document.getElementById('forgot-email').value = typed;
 }
 
 function showMsg(text, type) {
@@ -172,14 +224,88 @@ async function handleSignUp() {
 
   // Otherwise email confirmation is required: until the link is clicked the
   // user isn't signed in yet, so tell them to check their inbox.
-  showMsg('Account created! Check your email to confirm, then sign in.', 'success');
+  // (Switch tabs FIRST — switching hides any message, so showing the message
+  // before it used to make this notice vanish instantly.)
   switchTab('signin');
+  showMsg('Account created! Check your email to confirm, then sign in.', 'success');
 }
 
-// If someone is already signed in (existing session), skip straight
-// to the app instead of showing the sign-in form again.
+// "Forgot password?" — emails a reset link. The wording is the same whether or not
+// the email has an account, so this form can't be used to find out who has one.
+async function handleForgot() {
+  const email = document.getElementById('forgot-email').value.trim();
+  if (!email) { showMsg('Enter your email.', 'error'); return; }
+
+  const btn = document.getElementById('forgot-btn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+
+  const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + '/auth.html'
+  });
+
+  btn.textContent = 'Send reset link';
+  if (error) {
+    console.log('Password reset error:', error.message);
+    btn.disabled = false;
+    // Show Supabase's own "wait a minute" style messages; keep anything else generic.
+    const tooSoon = /second|minute|rate limit|too many/i.test(error.message || '');
+    showMsg(tooSoon ? error.message : "We couldn't send the email right now. Please try again in a few minutes.", 'error');
+    return;
+  }
+  showMsg("If an account exists for that email, we've sent a link to reset your password. Check your inbox and spam folder.", 'success');
+  // Brief pause before another send, so the button can't be hammered.
+  setTimeout(() => { btn.disabled = false; }, 30000);
+}
+
+// Reached from the link in the reset email (the link signs the person in temporarily).
+async function handleNewPassword() {
+  const password = document.getElementById('newpass').value;
+  const confirm = document.getElementById('newpass-confirm').value;
+  if (password.length < 8) { showMsg('Password must be at least 8 characters.', 'error'); return; }
+  if (password !== confirm) { showMsg('Passwords do not match.', 'error'); return; }
+
+  const btn = document.getElementById('newpass-btn');
+  btn.disabled = true; btn.textContent = 'Updating…';
+
+  const { error } = await supabaseClient.auth.updateUser({ password });
+
+  btn.disabled = false; btn.textContent = 'Update password';
+  if (error) { showMsg(error.message, 'error'); return; }
+
+  showMsg('Password updated. Taking you to your account…', 'success');
+  // Take the reset tokens out of the address bar, then open the app.
+  try { window.history.replaceState(null, '', window.location.pathname); } catch (e) {}
+  setTimeout(() => { window.location.href = '/index.html'; }, 1200);
+}
+
+// Supabase also announces a reset link through this event.
+supabaseClient.auth.onAuthStateChange((event) => {
+  if (event === 'PASSWORD_RECOVERY') {
+    recoveryMode = true;
+    showOnly('newpass');
+  }
+});
+
+// On load: show the right screen.
+//  - expired/used reset link  → ask for a new link
+//  - valid reset link         → "choose a new password" form (do NOT send them into the app)
+//  - already signed in        → straight to the app
 (async () => {
+  if (linkError) {
+    showForgot();
+    showMsg('That reset link is invalid or has expired. Enter your email to get a new one.', 'error');
+    return;
+  }
   const { data: { session } } = await supabaseClient.auth.getSession();
+  if (recoveryMode) {
+    if (session) {
+      showOnly('newpass');
+    } else {
+      showForgot();
+      showMsg('That reset link is invalid or has expired. Enter your email to get a new one.', 'error');
+    }
+    return;
+  }
   if (session) window.location.href = '/index.html';
 })();
 </script>
