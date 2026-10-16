@@ -294,7 +294,7 @@ textarea{resize:vertical;min-height:70px;}
       </div>
       <div class="info info-gold" style="margin-top:18px;">
         <strong>📌 Calendar entry format</strong><br>
-        <strong>Title:</strong> <code style="background:rgba(0,0,0,.07);padding:1px 6px;border-radius:3px;">Agency Name — Assignment Type — Patient Name — PO:12345</code> (PO optional)<br>
+        <strong>Title:</strong> <code style="background:rgba(0,0,0,.07);padding:1px 6px;border-radius:3px;">Agency Name — Assignment Type — Party Name — PO:12345</code> (PO optional)<br>
         <strong>Location:</strong> Hospital name &nbsp;·&nbsp; <strong>Description:</strong> <code style="background:rgba(0,0,0,.07);padding:1px 6px;border-radius:3px;">Miles: 12</code> or blank
       </div>
     </div>
@@ -303,7 +303,7 @@ textarea{resize:vertical;min-height:70px;}
       <div class="card-hdr">
         <div><div class="card-title">Imported assignments</div><div class="card-sub" id="events-sub">Select which to invoice.</div></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <input type="text" id="events-search" placeholder="🔍 Search agency or patient…" oninput="filterEvents()" style="width:220px;padding:7px 12px;font-size:12px;">
+          <input type="text" id="events-search" placeholder="🔍 Search agency or party name…" oninput="filterEvents()" style="width:220px;padding:7px 12px;font-size:12px;">
           <button class="btn btn-outline btn-sm" onclick="selAllEv()">Select all</button>
           <button class="btn btn-ghost btn-sm" onclick="selNoneEv()">Clear</button>
         </div>
@@ -482,7 +482,7 @@ textarea{resize:vertical;min-height:70px;}
   <div class="info info-teal" id="m-rate-info" style="display:none;margin-bottom:14px;"></div>
   <div class="form-grid g2" style="margin-bottom:14px;">
     <div class="fg"><label>Date</label><input type="date" id="m-date"></div>
-    <div class="fg"><label>Patient name</label><input type="text" id="m-patient" placeholder="First Last"></div>
+    <div class="fg"><label>Party name</label><input type="text" id="m-patient" placeholder="First Last"></div>
     <div class="fg"><label>Location / Hospital</label><input type="text" id="m-location"></div>
     <div class="fg"><label>PO number (optional)</label><input type="text" id="m-po"></div>
     <div class="fg"><label>Start time</label><input type="time" id="m-start" oninput="calcBilling()"></div>
@@ -502,7 +502,6 @@ textarea{resize:vertical;min-height:70px;}
       <label>Miles traveled</label>
       <div style="display:flex;gap:6px;">
         <input type="number" id="m-miles" placeholder="0" min="0" oninput="calcBilling()" style="flex:1;">
-        <button type="button" class="btn btn-outline btn-sm" onclick="openDirectionsForAssignment()" title="Opens Google Maps directions from your home address to this assignment's location">🗺️</button>
       </div>
     </div>
     <div class="fg"><label>Notes</label><input type="text" id="m-notes"></div>
@@ -733,13 +732,6 @@ textarea{resize:vertical;min-height:70px;}
     <div class="fg"><label>City, State, ZIP</label><input type="text" id="set-addr2" placeholder="City, State ZIP"></div>
   </div>
 
-  <div class="divider"></div>
-  <div style="margin-bottom:18px;">
-    <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Home address (for mileage)</div>
-    <div style="font-size:12px;color:var(--ink3);margin-bottom:10px;line-height:1.5;">Not shown on invoices — just used as the starting point when you look up driving directions to an assignment.</div>
-    <div class="fg"><input type="text" id="set-home-address" placeholder="123 Main St, Santa Clara, CA 95050"></div>
-  </div>
-
   <div class="modal-actions" style="margin-top:18px;">
     <button class="btn btn-ghost" onclick="closeModal('settings-modal')">Cancel</button>
     <button class="btn btn-teal" onclick="saveSettings()">Save</button>
@@ -952,6 +944,7 @@ let driveBackupFileIds = []; // Rotating set of Drive backup files: [{id, create
 // upgrading from before these fields existed.
 let businessInfo = { businessName: '', tagline: '', name: '', addr1: '', addr2: '' };
 let isDemoMode = false;
+let droppedHomeAddress = false; // set when a saved home address was removed during load (see applyLoadedData)
 let realClientsBackup = null;
 // Tracks IDs of assignments freshly created (via import or manual add) that belong
 // to the CURRENT in-progress invoice draft and haven't been sent yet. Used so
@@ -1382,6 +1375,15 @@ function applyLoadedData(d) {
   if (businessInfo && businessInfo.businessName === undefined) {
     businessInfo.businessName = 'MÁS Professional Services';
     businessInfo.tagline = 'Medical Interpretation Services';
+  }
+
+  // Removed feature: the optional home address (it was only used to open Google
+  // Maps directions; miles are now typed in by hand). Drop any saved value so it
+  // stops being stored — the load handler saves once so the cloud copy, the
+  // browser copy and future Drive backups no longer contain it.
+  if (businessInfo && businessInfo.homeAddress !== undefined) {
+    delete businessInfo.homeAddress;
+    droppedHomeAddress = true;
   }
 }
 
@@ -2099,28 +2101,6 @@ function onTypeChange() {
   calcBilling();
 }
 
-// Opens Google Maps with driving directions pre-filled from the saved home
-// address to this assignment's location — no API key or integration needed,
-// just a plain Maps URL. You read the mileage off the map and type it in
-// yourself; nothing here writes back automatically.
-function openDirectionsForAssignment() {
-  const home = (businessInfo.homeAddress || '').trim();
-  const destination = document.getElementById('m-location').value.trim();
-  if (!home) {
-    showToast('⚠️', 'Add your home address in Settings first');
-    return;
-  }
-  if (!destination) {
-    showToast('⚠️', 'Enter a location for this assignment first');
-    return;
-  }
-  const url = 'https://www.google.com/maps/dir/?api=1'
-    + '&origin=' + encodeURIComponent(home)
-    + '&destination=' + encodeURIComponent(destination)
-    + '&travelmode=driving';
-  window.open(url, '_blank');
-}
-
 function calcBilling() {
   const c = clients.find(x => x.id === document.getElementById('m-client').value);
   const type = document.getElementById('m-type').value;
@@ -2177,7 +2157,7 @@ function saveAssignment() {
   if (editingAssignId && existing) {
     const changes = [];
     if (existing.start !== start || existing.end !== end) changes.push('Time: ' + existing.start + '–' + existing.end + ' → ' + start + '–' + end);
-    if (existing.patientName !== patientName) changes.push('Patient: ' + existing.patientName + ' → ' + patientName);
+    if (existing.patientName !== patientName) changes.push('Party name: ' + existing.patientName + ' → ' + patientName);
     if (existing.miles !== (parseFloat(document.getElementById('m-miles').value) || 0)) changes.push('Miles: ' + existing.miles + ' → ' + (parseFloat(document.getElementById('m-miles').value) || 0));
     if (existing.total !== (svc + mil)) changes.push('Total: $' + existing.total.toFixed(2) + ' → $' + (svc + mil).toFixed(2));
     const newVisitStatus = document.getElementById('m-status-flag').value;
@@ -2673,7 +2653,7 @@ function renderAssignments() {
     const st = getStatusLabel(a.status);
     const isDupe = dupeCounts[dupeKeyOf(a)] > 1;
     const dupeWarning = isDupe
-      ? `<div style="font-size:11px;color:var(--red);font-weight:600;margin-top:2px;">⚠ Possible duplicate — another assignment in this draft has the same patient, date, and time</div>`
+      ? `<div style="font-size:11px;color:var(--red);font-weight:600;margin-top:2px;">⚠ Possible duplicate — another assignment in this draft has the same party name, date, and time</div>`
       : '';
     return `<div class="assign-row selected" id="ar-${a.id}" style="${isDupe ? 'background:var(--red-light);border-color:#f5c5c0;' : ''}">
       <input type="checkbox" id="chk-${a.id}" checked onchange="document.getElementById('ar-${a.id}').classList.toggle('selected',this.checked);updateSummary()">
@@ -2831,7 +2811,7 @@ function renderBatchPreview() {
   html += `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px;">
     <thead><tr style="border-bottom:1.5px solid var(--canvas2);">
       <th style="text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">Date</th>
-      <th style="text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">Patient</th>
+      <th style="text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">Party Name</th>
       <th style="text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">Type</th>
       <th style="text-align:center;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">Start</th>
       <th style="text-align:center;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">End</th>
@@ -2895,7 +2875,7 @@ function goToStep3() {
     const ok = confirm(
       '⚠️ Possible duplicate assignment(s) selected for this invoice:\n\n' +
       dupeNames.join('\n') +
-      '\n\nSame patient, date, and time appears more than once — this usually means the same real visit got added twice by mistake.\n\n' +
+      '\n\nSame party name, date, and time appears more than once — this usually means the same real visit got added twice by mistake.\n\n' +
       'Continue anyway?'
     );
     if (!ok) return;
@@ -3369,7 +3349,6 @@ function openSettingsModal() {
   document.getElementById('set-name').value = businessInfo.name || '';
   document.getElementById('set-addr1').value = businessInfo.addr1 || '';
   document.getElementById('set-addr2').value = businessInfo.addr2 || '';
-  document.getElementById('set-home-address').value = businessInfo.homeAddress || '';
   const lastBackup = localStorage.getItem('mas_last_backup');
   const el = document.getElementById('backup-last-saved');
   el.textContent = lastBackup ? 'Last manual backup: ' + new Date(lastBackup).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : 'No manual backup downloaded yet.';
@@ -3399,8 +3378,7 @@ function saveSettings() {
     tagline: document.getElementById('set-tagline').value.trim(),
     name: document.getElementById('set-name').value.trim(),
     addr1: document.getElementById('set-addr1').value.trim(),
-    addr2: document.getElementById('set-addr2').value.trim(),
-    homeAddress: document.getElementById('set-home-address').value.trim()
+    addr2: document.getElementById('set-addr2').value.trim()
   };
   saveData();
   closeModal('settings-modal');
@@ -4212,7 +4190,7 @@ function exportMileageCSV() {
 
   if (!entries.length) { showToast('⚠️', 'No mileage entries to export'); return; }
 
-  const rows = [['Date', 'Agency', 'Patient', 'Location', 'Miles', 'Rate', 'Billed']];
+  const rows = [['Date', 'Agency', 'Party Name', 'Location', 'Miles', 'Rate', 'Billed']];
   entries.forEach(a => {
     rows.push([a.date, a.clientName, a.patientName, a.location || '', a.miles, a.mileageRate || 0, (a.mileageAmt || 0).toFixed(2)]);
   });
@@ -4365,6 +4343,7 @@ window.addEventListener('load', async () => {
 
   checkSingleTab(async () => {
     await loadData();
+    if (droppedHomeAddress) saveData(); // one-time: persist removal of the old home-address field
     showPanel('panel-connect');
     setStep(1);
     renderClients();
