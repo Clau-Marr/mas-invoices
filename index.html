@@ -397,13 +397,17 @@ textarea{resize:vertical;min-height:70px;}
 <div class="page" id="page-history">
   <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:12px;">
     <div><div class="page-title">Payments & Reconciliation</div><div class="page-sub">Track what's been paid, what's outstanding, and flag short payments.</div></div>
-    <select id="pay-filter" onchange="renderHistory()" style="width:auto;font-size:12px;padding:6px 10px;">
-      <option value="all">All invoices</option>
-      <option value="unpaid">Outstanding only</option>
-      <option value="partial">Partially paid</option>
-      <option value="paid">Fully paid</option>
-    </select>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <input type="search" id="history-search" placeholder="🔍 Search invoice #, client, party name, PO, date, amount…" oninput="onHistorySearch()" onkeydown="if(event.key==='Escape'){this.value='';onHistorySearch();}" autocomplete="off" style="width:310px;max-width:100%;font-size:12px;padding:7px 12px;">
+      <select id="pay-filter" onchange="renderHistory()" style="width:auto;font-size:12px;padding:6px 10px;">
+        <option value="all">All invoices</option>
+        <option value="unpaid">Outstanding only</option>
+        <option value="partial">Partially paid</option>
+        <option value="paid">Fully paid</option>
+      </select>
+    </div>
   </div>
+  <div id="history-search-count" style="font-size:12px;color:var(--ink3);margin:0 0 12px;min-height:16px;"></div>
 
   <!-- Summary bar -->
   <div id="pay-summary-bar" style="display:none;">
@@ -3748,16 +3752,61 @@ function updateClientDropdowns() {
   if (bs) { bs.innerHTML = '<option value="">— Select agency —</option>' + clients.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join(''); }
 }
 
+// ── HISTORY SEARCH ────────────────────────────────────────
+// Filters the History list as you type. Every word you type must appear somewhere in
+// the invoice: its number, client, client email, date (e.g. "Oct 1", "October",
+// "2026-10-01") or total — or in one of its assignments (party name, PO number,
+// location, type, an additional fee). Accents and punctuation are ignored, so "maria"
+// finds "María". Nothing is saved; this only changes what is shown on screen.
+let historySearchTimer = null;
+function onHistorySearch() {
+  clearTimeout(historySearchTimer);
+  historySearchTimer = setTimeout(renderHistory, 150);
+}
+function clearHistorySearch() {
+  const box = document.getElementById('history-search');
+  if (box) box.value = '';
+  renderHistory();
+}
+function historySearchTerms() {
+  const raw = (document.getElementById('history-search')?.value || '').trim();
+  return raw ? raw.split(/\s+/).map(normalizeForMatch).filter(Boolean) : [];
+}
+// Returns null if the invoice doesn't match; 'invoice' if the invoice itself matched; or
+// 'lines' if at least one word was only found in the assignment details (the list then
+// opens that invoice so the matching assignment is visible).
+function invoiceSearchMatch(h, terms) {
+  const dateForms = (str) => (str ? [str, fmtDateShort(str), fmtDateLong(str)] : []);
+  const invoiceFields = [h.num, h.client, h.clientEmail, h.total != null ? Number(h.total).toFixed(2) : '', ...dateForms(h.date)];
+  const lineFields = [];
+  (h.snapshot || []).forEach(a => {
+    lineFields.push(a.patientName, a.po, a.location, a.type, ...dateForms(a.date), a.total != null ? Number(a.total).toFixed(2) : '');
+    (a.fees || []).forEach(f => lineFields.push(feeLabel(f)));
+  });
+  const norm = (list) => list.map(x => normalizeForMatch(x == null ? '' : String(x))).join(' ');
+  const hayInvoice = norm(invoiceFields);
+  const hayLines = norm(lineFields);
+  let needsLines = false;
+  for (const term of terms) {
+    if (hayInvoice.includes(term)) continue;
+    if (hayLines.includes(term)) { needsLines = true; continue; }
+    return null;
+  }
+  return needsLines ? 'lines' : 'invoice';
+}
+
 function renderHistory() {
   const el = document.getElementById('history-list');
   const filterVal = document.getElementById('pay-filter')?.value || 'all';
   const summaryBar = document.getElementById('pay-summary-bar');
+  const countEl = document.getElementById('history-search-count');
 
   renderMismatchBanner();
 
   if (!history.length) {
     el.innerHTML = '<div class="empty"><div class="empty-icon">📁</div><h3>No invoices yet</h3><p>Sent invoices appear here.</p></div>';
     if (summaryBar) summaryBar.style.display = 'none';
+    if (countEl) countEl.textContent = '';
     return;
   }
 
@@ -3790,14 +3839,27 @@ function renderHistory() {
   if (filterVal === 'partial') filtered = history.filter(h => rollups[h.id].status === 'partial');
   if (filterVal === 'paid') filtered = history.filter(h => rollups[h.id].status === 'paid');
 
+  // Search box: keep only invoices that contain every word typed
+  const searchTerms = historySearchTerms();
+  const searchHits = {};
+  if (searchTerms.length) {
+    filtered = filtered.filter(h => { const m = invoiceSearchMatch(h, searchTerms); if (m) searchHits[h.id] = m; return !!m; });
+  }
+  if (countEl) countEl.textContent = (searchTerms.length || filterVal !== 'all')
+    ? 'Showing ' + filtered.length + ' of ' + history.length + ' invoice' + (history.length === 1 ? '' : 's')
+    : '';
+
   if (!filtered.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><h3>Nothing here</h3><p>No invoices match this filter.</p></div>';
+    el.innerHTML = searchTerms.length
+      ? '<div class="empty"><div class="empty-icon">🔍</div><h3>No matches</h3><p>No invoices match “' + esc(document.getElementById('history-search').value.trim()) + '”. <a href="#" onclick="clearHistorySearch();return false;" style="color:var(--teal);">Clear search</a></p></div>'
+      : '<div class="empty"><div class="empty-icon">✅</div><h3>Nothing here</h3><p>No invoices match this filter.</p></div>';
     return;
   }
 
   let html = '';
   filtered.forEach(h => {
     const roll = rollups[h.id];
+    const autoOpen = searchHits[h.id] === 'lines'; // matched on assignment details → show them
     const statusBadge = roll.status === 'paid'
       ? `<span class="badge badge-paid">✅ Paid</span>`
       : roll.status === 'partial'
@@ -3810,7 +3872,7 @@ function renderHistory() {
     const reprintBtn = h.snapshot ? `<button class="btn btn-outline btn-xs" onclick="reprintInvoice('${h.id}')">🖨 View/Print</button>` : '';
     const emailBtn = h.snapshot ? `<button class="btn btn-purple btn-xs" onclick="openEmailModal('${h.id}')">📧 Email</button>` : '';
     const deleteBtn = `<button class="btn btn-danger btn-xs" onclick="deleteInvoice('${h.id}')" title="Delete this invoice record">✕</button>`;
-    const expandBtn = `<button class="btn btn-ghost btn-xs" onclick="toggleInvoiceExpand('${h.id}')"><span id="exp-chevron-${h.id}">▸</span> ${roll.total} assignment${roll.total === 1 ? '' : 's'}</button>`;
+    const expandBtn = `<button class="btn btn-ghost btn-xs" onclick="toggleInvoiceExpand('${h.id}')"><span id="exp-chevron-${h.id}">${autoOpen ? '▾' : '▸'}</span> ${roll.total} assignment${roll.total === 1 ? '' : 's'}</button>`;
 
     html += `<div class="inv-wrap" style="margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;flex-wrap:wrap;">
@@ -3822,7 +3884,7 @@ function renderHistory() {
         <div>${statusBadge}</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;">${expandBtn}${bulkBtn}${reprintBtn}${emailBtn}${deleteBtn}</div>
       </div>
-      <div id="exp-body-${h.id}" style="display:none;border-top:1px solid var(--canvas2);padding:2px 18px 12px;">
+      <div id="exp-body-${h.id}" style="display:${autoOpen ? 'block' : 'none'};border-top:1px solid var(--canvas2);padding:2px 18px 12px;">
         ${renderInvoiceAssignmentRows(h)}
       </div>
     </div>`;
