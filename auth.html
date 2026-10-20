@@ -39,6 +39,14 @@ input:focus{border-color:var(--teal);background:white;}
 .panel{display:none;}
 .panel.active{display:block;}
 .foot{text-align:center;font-size:12px;color:var(--ink3);margin-top:20px;}
+.foot a{color:var(--ink3);text-decoration:underline;}
+.foot a:hover{color:var(--teal);}
+/* "I am 18 or older and agree" checkbox on Create Account. The page-wide label/input
+   styles (small uppercase labels, full-width inputs) are overridden here on purpose. */
+.agree{display:flex;gap:9px;align-items:flex-start;margin:2px 0 6px;}
+.agree input[type=checkbox]{width:16px;height:16px;padding:0;margin:2px 0 0;flex:none;accent-color:var(--teal);}
+.agree .agree-text{font-size:12.5px;font-weight:400;letter-spacing:0;text-transform:none;line-height:1.5;color:var(--ink2);}
+.agree .agree-text a{color:var(--teal);}
 .forgot{text-align:center;margin-top:14px;font-size:13px;}
 .forgot a{color:var(--teal);text-decoration:none;cursor:pointer;}
 .forgot a:hover{text-decoration:underline;}
@@ -87,6 +95,10 @@ input:focus{border-color:var(--teal);background:white;}
         <label>Confirm password</label>
         <input type="password" id="signup-password-confirm" autocomplete="new-password">
       </div>
+      <div class="agree">
+        <input type="checkbox" id="signup-agree">
+        <label class="agree-text" for="signup-agree">I am 18 or older and I'm using Novium for my business. I agree to the <a href="https://getnovium.com/terms.html" target="_blank" rel="noopener">Terms of Service</a> and the <a href="https://getnovium.com/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</label>
+      </div>
       <button class="btn btn-primary" id="signup-btn" onclick="handleSignUp()">Create Account</button>
     </div>
 
@@ -115,7 +127,7 @@ input:focus{border-color:var(--teal);background:white;}
       <button class="btn btn-primary" id="newpass-btn" onclick="handleNewPassword()">Update password</button>
     </div>
 
-    <div class="foot" id="foot-text">Your data is private to your account and never visible to other users.</div>
+    <div class="foot" id="foot-text">Your data is private to your account and never visible to other users.<br><a href="https://getnovium.com/terms.html" target="_blank" rel="noopener">Terms of Service</a> &middot; <a href="https://getnovium.com/privacy.html" target="_blank" rel="noopener">Privacy Policy</a></div>
   </div>
 </div>
 
@@ -201,6 +213,10 @@ async function handleSignUp() {
   if (!email || !password) { showMsg('Enter an email and password.', 'error'); return; }
   if (password.length < 8) { showMsg('Password must be at least 8 characters.', 'error'); return; }
   if (password !== confirm) { showMsg('Passwords do not match.', 'error'); return; }
+  if (!document.getElementById('signup-agree').checked) {
+    showMsg('Please confirm that you are 18 or older and agree to the Terms of Service and Privacy Policy.', 'error');
+    return;
+  }
 
   const btn = document.getElementById('signup-btn');
   btn.disabled = true; btn.textContent = 'Creating account…';
