@@ -405,6 +405,7 @@ textarea{resize:vertical;min-height:70px;}
         <option value="partial">Partially paid</option>
         <option value="paid">Fully paid</option>
       </select>
+      <button class="btn btn-outline btn-sm" onclick="printHistoryList()" title="Print this list exactly as it is showing now">🖨 Print list</button>
     </div>
   </div>
   <div id="history-search-count" style="font-size:12px;color:var(--ink3);margin:0 0 12px;min-height:16px;"></div>
@@ -440,6 +441,7 @@ textarea{resize:vertical;min-height:70px;}
  <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;position:sticky;top:58px;background:var(--canvas, #fff);z-index:10;padding:10px 0;">
 <input type="text" id="outstanding-search" list="outstanding-search-list" placeholder="🔍 Jump to agency…" oninput="jumpToOutstandingAgency()" onkeydown="if(event.key==='Enter')jumpToOutstandingAgency()" style="max-width:320px;"><button type="button" onclick="document.getElementById('outstanding-search').value='';jumpToOutstandingAgency();document.getElementById('outstanding-search').focus();" style="margin-left:4px;padding:6px 12px;border-radius:6px;border:1px solid #ccc;background:white;cursor:pointer;" title="Clear search">✕</button>
     <datalist id="outstanding-search-list"></datalist>
+    <button class="btn btn-outline btn-sm" style="margin-left:auto;" onclick="printOutstandingList()" title="Print this list">🖨 Print list</button>
   </div>
   <div id="outstanding-summary" style="display:none;">
     <div class="sum-bar" style="margin-bottom:20px;">
@@ -3795,6 +3797,22 @@ function invoiceSearchMatch(h, terms) {
   return needsLines ? 'lines' : 'invoice';
 }
 
+// The invoices History is currently showing: the status dropdown, then the search box.
+// Shared by renderHistory() and the Print button so the printout always matches the screen.
+function historyVisibleInvoices(rollups) {
+  const filterVal = document.getElementById('pay-filter')?.value || 'all';
+  let filtered = history;
+  if (filterVal === 'unpaid') filtered = history.filter(h => rollups[h.id].status === 'unpaid');
+  if (filterVal === 'partial') filtered = history.filter(h => rollups[h.id].status === 'partial');
+  if (filterVal === 'paid') filtered = history.filter(h => rollups[h.id].status === 'paid');
+  const searchTerms = historySearchTerms();
+  const searchHits = {};
+  if (searchTerms.length) {
+    filtered = filtered.filter(h => { const m = invoiceSearchMatch(h, searchTerms); if (m) searchHits[h.id] = m; return !!m; });
+  }
+  return { filtered, searchTerms, searchHits, filterVal };
+}
+
 function renderHistory() {
   const el = document.getElementById('history-list');
   const filterVal = document.getElementById('pay-filter')?.value || 'all';
@@ -3833,18 +3851,8 @@ function renderHistory() {
 
   renderMonthlySummary();
 
-  // Filter
-  let filtered = history;
-  if (filterVal === 'unpaid') filtered = history.filter(h => rollups[h.id].status === 'unpaid');
-  if (filterVal === 'partial') filtered = history.filter(h => rollups[h.id].status === 'partial');
-  if (filterVal === 'paid') filtered = history.filter(h => rollups[h.id].status === 'paid');
-
-  // Search box: keep only invoices that contain every word typed
-  const searchTerms = historySearchTerms();
-  const searchHits = {};
-  if (searchTerms.length) {
-    filtered = filtered.filter(h => { const m = invoiceSearchMatch(h, searchTerms); if (m) searchHits[h.id] = m; return !!m; });
-  }
+  // Which invoices are showing (status filter + search box)
+  const { filtered, searchTerms, searchHits } = historyVisibleInvoices(rollups);
   if (countEl) countEl.textContent = (searchTerms.length || filterVal !== 'all')
     ? 'Showing ' + filtered.length + ' of ' + history.length + ' invoice' + (history.length === 1 ? '' : 's')
     : '';
@@ -4223,6 +4231,27 @@ function deleteAllOrphanedAssignments() {
   showToast('🗑', orphans.length + ' assignments deleted');
 }
 
+// Every unpaid / partly-paid assignment that belongs to a real invoice (see the note in
+// renderOutstanding). Shared with the Print button.
+function outstandingAssignments() {
+  const seenIds = new Set();
+  const unpaid = [];
+  const byId = buildTrackedAssignmentsById();
+  history.forEach(h => {
+    invoiceAssignments(h, byId).forEach(a => {
+      if (!isPaid(a) && !seenIds.has(a.id)) {
+        seenIds.add(a.id);
+        unpaid.push(a);
+      }
+    });
+  });
+  return unpaid;
+}
+function invoiceNumForAssignment(assignId) {
+  const h = history.find(hh => (hh.snapshot || []).some(s => s.id === assignId));
+  return h ? h.num : '—';
+}
+
 function renderOutstanding() {
   const el = document.getElementById('outstanding-list');
   const summary = document.getElementById('outstanding-summary');
@@ -4238,17 +4267,7 @@ function renderOutstanding() {
   // Those orphans inflated this page's total above History's, even though they
   // were never real, billed invoices. Deriving from invoiceAssignments() instead
   // keeps both pages showing the exact same, accurate outstanding balance.
-  const seenIds = new Set();
-  const unpaid = [];
-  const byId = buildTrackedAssignmentsById();
-  history.forEach(h => {
-    invoiceAssignments(h, byId).forEach(a => {
-      if (!isPaid(a) && !seenIds.has(a.id)) {
-        seenIds.add(a.id);
-        unpaid.push(a);
-      }
-    });
-  });
+  const unpaid = outstandingAssignments();
 
   const orphans = findOrphanedSubmittedAssignments();
   let orphanBanner = '';
@@ -4286,10 +4305,7 @@ function renderOutstanding() {
     document.getElementById('out-clients').textContent = clientSet.size;
   }
 
-  function invoiceNumFor(assignId) {
-    const h = history.find(hh => (hh.snapshot || []).some(s => s.id === assignId));
-    return h ? h.num : '—';
-  }
+  const invoiceNumFor = invoiceNumForAssignment;
 
   const byClient = {};
   unpaid.forEach(a => { (byClient[a.clientName] = byClient[a.clientName] || []).push(a); });
@@ -4326,6 +4342,130 @@ function renderOutstanding() {
     </div>`;
   });
   el.innerHTML = html;
+}
+
+// ── PRINT THE LISTS ────────────────────────────────────────
+// Prints in a private, hidden page of its own (an iframe) with its own simple styling,
+// so it never touches the app's @media print rules that the invoice/report printouts rely on.
+const LIST_PRINT_CSS = `
+  @page { size: letter; margin: 0.5in; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; font-size: 11px; margin: 0; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .sub { color: #555; font-size: 11px; margin-bottom: 12px; }
+  .filters { font-size: 11px; margin-bottom: 10px; }
+  .sums { display: flex; gap: 22px; margin: 0 0 14px; padding: 8px 0; border-top: 1px solid #999; border-bottom: 1px solid #999; }
+  .sums div b { display: block; font-size: 13px; }
+  .sums div span { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #555; border-bottom: 1px solid #333; padding: 4px 6px; }
+  td { padding: 5px 6px; border-bottom: 1px solid #ddd; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; }
+  tr { page-break-inside: avoid; }
+  .r { text-align: right; white-space: nowrap; }
+  .line td { font-size: 10px; color: #444; padding-left: 22px; border-bottom: 1px dotted #ddd; }
+  .grp { font-size: 13px; font-weight: bold; margin: 14px 0 4px; display: flex; justify-content: space-between; page-break-after: avoid; }
+  tfoot td, .totalrow td { font-weight: bold; border-top: 1px solid #333; border-bottom: none; }
+  .none { padding: 20px 0; color: #555; }
+`;
+
+function printListDocument(title, bodyHtml) {
+  const old = document.getElementById('list-print-frame');
+  if (old) old.remove();
+  const frame = document.createElement('iframe');
+  frame.id = 'list-print-frame';
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+  document.body.appendChild(frame);
+  const doc = frame.contentWindow.document;
+  doc.open();
+  doc.write('<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' + LIST_PRINT_CSS + '</style></head><body>' + bodyHtml + '</body></html>');
+  doc.close();
+  const cleanup = () => { setTimeout(() => { try { frame.remove(); } catch (e) {} }, 500); };
+  frame.contentWindow.onafterprint = cleanup;
+  setTimeout(() => {
+    try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+    catch (e) { showToast('⚠️', 'Could not open the print window'); }
+    setTimeout(cleanup, 60000); // fallback if the browser never reports "after print"
+  }, 250);
+}
+
+function listPrintHeader(title, subtitle) {
+  const biz = businessInfo.businessName || businessInfo.name || '';
+  return `<h1>${esc(title)}</h1><div class="sub">${biz ? esc(biz) + ' · ' : ''}Printed ${esc(new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))}${subtitle ? '<br>' + subtitle : ''}</div>`;
+}
+
+function buildHistoryPrintHtml() {
+  const byId = buildTrackedAssignmentsById();
+  const rollups = {};
+  history.forEach(h => { rollups[h.id] = invoiceRollup(h, byId); });
+  const { filtered, searchTerms, filterVal } = historyVisibleInvoices(rollups);
+
+  const filterNames = { all: 'All invoices', unpaid: 'Outstanding only', partial: 'Partially paid', paid: 'Fully paid' };
+  const searchText = (document.getElementById('history-search')?.value || '').trim();
+  const subtitle = 'Showing: ' + esc(filterNames[filterVal] || 'All invoices')
+    + (searchTerms.length ? ' · search “' + esc(searchText) + '”' : '')
+    + ' · ' + filtered.length + ' of ' + history.length + ' invoice' + (history.length === 1 ? '' : 's');
+
+  let html = listPrintHeader('Payments & Reconciliation', subtitle);
+  if (!filtered.length) return html + '<div class="none">No invoices to show.</div>';
+
+  let billed = 0, received = 0;
+  filtered.forEach(h => { billed += rollups[h.id].totalBilled; received += rollups[h.id].totalReceived; });
+  const outstanding = Math.max(0, billed - received);
+  html += `<div class="sums"><div><b>$${billed.toFixed(2)}</b><span>Invoiced</span></div><div><b>$${received.toFixed(2)}</b><span>Received</span></div><div><b>$${outstanding.toFixed(2)}</b><span>Outstanding</span></div></div>`;
+
+  html += '<table><thead><tr><th>Invoice</th><th>Client</th><th>Date</th><th class="r">Total</th><th>Status</th></tr></thead><tbody>';
+  filtered.forEach(h => {
+    const roll = rollups[h.id];
+    const status = roll.status === 'paid' ? 'Paid'
+      : roll.status === 'partial' ? '$' + roll.totalReceived.toFixed(2) + ' of $' + roll.totalBilled.toFixed(2) + ' received'
+      : 'Outstanding';
+    html += `<tr><td>${esc(h.num)}</td><td>${esc(h.client)}</td><td>${esc(fmtDateShort(h.date))}</td><td class="r">$${Number(h.total).toFixed(2)}</td><td>${esc(status)}</td></tr>`;
+    // Invoices opened on screen (▾) also print their assignment lines
+    const body = document.getElementById('exp-body-' + h.id);
+    if (body && body.style.display === 'block') {
+      const lines = invoiceAssignments(h, byId);
+      if (!lines.length) html += '<tr class="line"><td colspan="5">No assignment details saved for this invoice.</td></tr>';
+      lines.forEach(a => {
+        const st = isPaid(a) ? 'Paid' : isPartiallyPaid(a) ? '$' + amountReceivedFor(a).toFixed(2) + ' received' : 'Unpaid';
+        html += `<tr class="line"><td colspan="2">${esc(fmtDateShort(a.date))} · ${esc(a.patientName)} — ${esc(a.type)}</td><td></td><td class="r">$${Number(a.total).toFixed(2)}</td><td>${esc(st)}</td></tr>`;
+      });
+    }
+  });
+  html += '</tbody></table>';
+  return html;
+}
+function printHistoryList() {
+  if (!history.length) { showToast('ℹ️', 'No invoices to print yet'); return; }
+  printListDocument('Payments & Reconciliation', buildHistoryPrintHtml());
+}
+
+function buildOutstandingPrintHtml() {
+  const unpaid = outstandingAssignments();
+  let html = listPrintHeader('Outstanding Assignments', 'Every invoiced assignment still waiting on payment');
+  if (!unpaid.length) return html + '<div class="none">Nothing outstanding.</div>';
+
+  const total = unpaid.reduce((s, a) => s + remainingOwedFor(a), 0);
+  const clientCount = new Set(unpaid.map(a => a.clientId)).size;
+  html += `<div class="sums"><div><b>${unpaid.length}</b><span>Unpaid assignments</span></div><div><b>$${total.toFixed(2)}</b><span>Outstanding total</span></div><div><b>${clientCount}</b><span>Clients owing</span></div></div>`;
+
+  const byClient = {};
+  unpaid.forEach(a => { (byClient[a.clientName] = byClient[a.clientName] || []).push(a); });
+  Object.keys(byClient).sort().forEach(clientName => {
+    const items = byClient[clientName].slice().sort((a, b) => a.date.localeCompare(b.date));
+    const clientTotal = items.reduce((s, a) => s + remainingOwedFor(a), 0);
+    html += `<div class="grp"><span>${esc(clientName)}</span><span>$${clientTotal.toFixed(2)} outstanding</span></div>`;
+    html += '<table><thead><tr><th>Date</th><th>Party</th><th>Type</th><th>Invoice</th><th class="r">Owed</th></tr></thead><tbody>';
+    items.forEach(a => {
+      const partial = isPartiallyPaid(a);
+      html += `<tr><td>${esc(fmtDateShort(a.date))}</td><td>${esc(a.patientName)}</td><td>${esc(a.type)}</td><td>${esc(invoiceNumForAssignment(a.id))}${partial ? '<br><span style="color:#555;">$' + amountReceivedFor(a).toFixed(2) + ' of $' + Number(a.total).toFixed(2) + ' received</span>' : ''}</td><td class="r">$${remainingOwedFor(a).toFixed(2)}</td></tr>`;
+    });
+    html += '</tbody></table>';
+  });
+  return html;
+}
+function printOutstandingList() {
+  printListDocument('Outstanding Assignments', buildOutstandingPrintHtml());
 }
 
 function slugifyForId(s) {
