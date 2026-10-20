@@ -303,7 +303,7 @@ textarea{resize:vertical;min-height:70px;}
       <div class="info info-gold" style="margin-top:18px;">
         <strong>📌 Calendar entry format</strong><br>
         <strong>Title:</strong> <code style="background:rgba(0,0,0,.07);padding:1px 6px;border-radius:3px;">Agency Name — Assignment Type — Party Name — PO:12345</code> (PO optional)<br>
-        <strong>Location:</strong> Hospital name &nbsp;·&nbsp; <strong>Description:</strong> <code style="background:rgba(0,0,0,.07);padding:1px 6px;border-radius:3px;">Miles: 12</code> or blank
+        <strong>Location:</strong> Hospital name &nbsp;·&nbsp; <strong>Description:</strong> <code style="background:rgba(0,0,0,.07);padding:1px 6px;border-radius:3px;">Miles: 12</code> (or "12 miles") or blank &mdash; only the number is read
       </div>
     </div>
 
@@ -1609,6 +1609,30 @@ function fetchEvents() {
     .catch(e => showToast('⚠️', 'Error: ' + e.message));
 }
 
+// Finds a mileage number in a calendar event's description (the "notes" box in
+// Google Calendar). ONLY the number is kept — the rest of the text is thrown away.
+// Google Calendar can store the description as HTML (bold, line breaks, &nbsp;), so
+// it is turned into plain text first. Understands, for example:
+//   "Miles: 12"  "miles:12"  "Miles : 12.5"  "Mileage - 8"  "Mi: 3"  "miles 15"
+//   "<b>Miles:</b> 12"  "Miles:&nbsp;12"  and, if no label is found, "12 miles" / "24 mi".
+// If a description has several mileage numbers, the first labelled one wins.
+function extractMiles(description) {
+  if (!description) return 0;
+  const text = String(description)
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;|&#160;|&#xa0;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/[   ]/g, ' ');
+  // 1) a label followed by a number:  miles / mile / mileage / mi  [: = - – —]  12
+  let m = text.match(/\b(?:miles?|mileage|mi)\b\s*[:=\-–—]?\s*(\d+(?:\.\d+)?)/i);
+  // 2) otherwise a number followed by a unit:  12 miles / 24 mi   ("12 minutes" does not match)
+  if (!m) m = text.match(/(\d+(?:\.\d+)?)\s*(?:miles?|mi)\b/i);
+  const n = m ? parseFloat(m[1]) : 0;
+  return isFinite(n) ? n : 0;
+}
+
 function parseEvent(ev, ctx) {
   if (!ev.start || !ev.summary) return null;
   // ctx holds lookup structures that don't change across a single import
@@ -1633,9 +1657,7 @@ if (m[4] && m[4].toUpperCase().startsWith('PO:')) po = m[4].replace(/^PO:/i, '')
   const startTime = ev.start.dateTime ? toPacificTime(ev.start.dateTime) : '';
   const endTime = ev.end?.dateTime ? toPacificTime(ev.end.dateTime) : '';
   const location = ev.location || '';
-  let miles = 0;
-  const milesMatch = (ev.description || '').match(/miles?\s*:\s*(\d+(\.\d+)?)/i);
-  if (milesMatch) miles = parseFloat(milesMatch[1]);
+  const miles = extractMiles(ev.description);
 
   // ── Fuzzy client matching: exact → contains → starts with → close enough
   const agencyNameLower = agencyName.toLowerCase();
