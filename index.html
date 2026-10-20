@@ -1177,6 +1177,71 @@ async function migrateToNormalizedTables() {
 
 const MAX_DRIVE_BACKUPS = 3;
 
+// ── Keeping only the newest backups in Drive ──────────────
+// The list of backup files used to live only in THIS browser's local storage, so every
+// other browser / profile / private window that connected Google never cleaned up older
+// files — one Drive folder ended up with 20 backups instead of 3. Now, after each upload,
+// the app looks at what is actually in the backup folder:
+//   • It only ever sees files this app created (Google's "drive.file" permission hides
+//     everything else), and only those whose names start with "Novium-backup-".
+//   • Each backup is tagged with the Novium account that made it; an account only removes
+//     its OWN. Older untagged backups (made before tagging) fill any spare slots, newest
+//     first, and the rest are removed. Other accounts' tagged backups are never touched.
+//   • If listing the folder fails for any reason, nothing is deleted.
+//   • At most MAX_DRIVE_DELETES_PER_RUN files are removed per save, as a safety brake.
+const DRIVE_BACKUP_PREFIX = 'Novium-backup-';
+const MAX_DRIVE_DELETES_PER_RUN = 25;
+async function pruneDriveBackups(folderId, newFileId) {
+  try {
+    if (!currentUser || !folderId) return;
+    const auth = { Authorization: 'Bearer ' + accessToken };
+    let files = [], pageToken = '';
+    for (let page = 0; page < 10; page++) {
+      const q = `'${folderId}' in parents and trashed=false`;
+      const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q)
+        + '&fields=' + encodeURIComponent('nextPageToken,files(id,name,createdTime,appProperties)')
+        + '&pageSize=200' + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+      const r = await fetch(url, { headers: auth });
+      if (!r.ok) throw new Error('could not list backups (' + r.status + ')');
+      const d = await r.json();
+      if (!Array.isArray(d.files)) throw new Error('unexpected list response');
+      files = files.concat(d.files);
+      pageToken = d.nextPageToken || '';
+      if (!pageToken) break;
+    }
+    files = files.filter(f => f && f.id && typeof f.name === 'string' && f.name.startsWith(DRIVE_BACKUP_PREFIX));
+    const tagOf = f => (f.appProperties && f.appProperties.noviumUser) || '';
+    const newestFirst = (a, b) => Date.parse(b.createdTime) - Date.parse(a.createdTime);
+    const mine = files.filter(f => tagOf(f) === currentUser.id).sort(newestFirst);
+    const legacy = files.filter(f => !tagOf(f)).sort(newestFirst); // made before tagging existed
+    // The listing can lag a moment behind an upload; if the file just uploaded isn't in it yet,
+    // count it anyway so we never keep (or delete) the wrong number.
+    const notListedYet = files.some(f => f.id === newFileId) ? 0 : 1;
+    const keepMineCount = Math.max(0, MAX_DRIVE_BACKUPS - notListedYet);
+    const keepMine = mine.slice(0, keepMineCount);
+    const spare = Math.max(0, MAX_DRIVE_BACKUPS - notListedYet - keepMine.length);
+    const keepLegacy = legacy.slice(0, spare);
+    const doomed = [...mine.slice(keepMineCount), ...legacy.slice(spare)]
+      .filter(f => f.id !== newFileId)
+      .slice(0, MAX_DRIVE_DELETES_PER_RUN);
+    for (const f of doomed) {
+      try {
+        const r = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id), { method: 'DELETE', headers: auth });
+        if (!r.ok && r.status !== 404) console.log('Drive cleanup: could not remove one old backup (' + r.status + ')');
+      } catch (e) { console.log('Drive cleanup error:', e); }
+    }
+    // Let the Settings screen show what is really in Drive now (oldest first).
+    const list = [...keepMine, ...keepLegacy]
+      .sort((a, b) => Date.parse(a.createdTime) - Date.parse(b.createdTime))
+      .map(f => ({ id: f.id, createdAt: f.createdTime }));
+    if (notListedYet) list.push({ id: newFileId, createdAt: new Date().toISOString() });
+    driveBackupFileIds = list;
+    localStorage.setItem('mas_drive_backup_ids', JSON.stringify(driveBackupFileIds));
+  } catch (e) {
+    console.log('Drive backup cleanup skipped (nothing was deleted):', e && e.message);
+  }
+}
+
 let driveBackupTimeout = null;
 function saveToDrive() {
   // The user can untick the Drive permission on Google's consent screen —
@@ -1199,8 +1264,14 @@ function saveToDrive() {
     // whatever the single most recent save happened to contain.
     const filename = 'Novium-backup-' + nowIso.replace(/[:.]/g, '-') + '.json';
 
+    let backupFolderId = null;
     findOrCreateDriveFolder().then(folderId => {
+      backupFolderId = folderId;
       const metadata = { name: filename, parents: folderId ? [folderId] : [], mimeType: 'application/json' };
+      // Tag the backup with the Novium account that made it — backups from different
+      // Novium accounts can land in the same Drive folder, and each account must only
+      // ever clean up its own (see pruneDriveBackups).
+      if (currentUser) metadata.appProperties = { noviumUser: currentUser.id };
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       form.append('file', new Blob([content], { type: 'application/json' }));
@@ -1212,13 +1283,18 @@ function saveToDrive() {
     }).then(r => r.json()).then(data => {
       if (data.id) {
         driveBackupFileIds.push({ id: data.id, createdAt: nowIso });
-        // Prune anything beyond the cap, oldest first
-        while (driveBackupFileIds.length > MAX_DRIVE_BACKUPS) {
-          const oldest = driveBackupFileIds.shift();
-          fetch('https://www.googleapis.com/drive/v3/files/' + oldest.id, {
-            method: 'DELETE',
-            headers: { Authorization: 'Bearer ' + accessToken }
-          }).catch(e => console.log('Drive prune error:', e));
+        if (backupFolderId && currentUser) {
+          // Normal path: clean up by looking at what is actually in the Drive folder.
+          pruneDriveBackups(backupFolderId, data.id);
+        } else {
+          // Fallback (folder unknown): trim this browser's own remembered list, as before.
+          while (driveBackupFileIds.length > MAX_DRIVE_BACKUPS) {
+            const oldest = driveBackupFileIds.shift();
+            fetch('https://www.googleapis.com/drive/v3/files/' + oldest.id, {
+              method: 'DELETE',
+              headers: { Authorization: 'Bearer ' + accessToken }
+            }).catch(e => console.log('Drive prune error:', e));
+          }
         }
         localStorage.setItem('mas_drive_backup_ids', JSON.stringify(driveBackupFileIds));
         showDriveSaveIndicator();
