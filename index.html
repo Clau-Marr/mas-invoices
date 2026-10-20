@@ -510,6 +510,12 @@ textarea{resize:vertical;min-height:70px;}
       </div>
     </div>
   </div>
+  <div class="fg" style="margin-bottom:14px;">
+    <label>Additional fees (optional)</label>
+    <div id="m-fees-list"></div>
+    <button type="button" class="btn btn-outline btn-sm" onclick="addFeeRow()" style="align-self:flex-start;">+ Add a fee</button>
+    <div style="font-size:11px;color:var(--ink3);margin-top:6px;line-height:1.5;">Supplies, tolls, parking, or other. Each one is added to this assignment's total and shown as its own line on the invoice.</div>
+  </div>
   <div class="modal-actions">
     <button class="btn btn-ghost" onclick="closeModal('assign-modal')">Cancel</button>
     <button class="btn btn-teal" onclick="saveAssignment()">Save</button>
@@ -1947,7 +1953,7 @@ function importSelected() {
       billableMins: ev.billing.billableMins, overMin: ev.billing.overMin,
       rate: ev.rateInfo.rate, minHours: ev.rateInfo.minHours,
       serviceAmt, miles: ev.miles, mileageRate: client?.mileageRate || 0,
-      mileageAmt, total: serviceAmt + mileageAmt, notes: '', visitStatus: (ev.isNoShow ? 'no_show' : ''),
+      mileageAmt, fees: [], feesAmt: 0, total: serviceAmt + mileageAmt, notes: '', visitStatus: (ev.isNoShow ? 'no_show' : ''),
       status: initialStatus, statusHistory: [{ status: initialStatus, date: todayStr() }],
       billingFreq: client?.billingFreq || 'single',
     };
@@ -2062,6 +2068,7 @@ function openAddModal(id) {
       document.getElementById('m-start').value = a.start;
       document.getElementById('m-end').value = a.end;
       document.getElementById('m-miles').value = a.miles || 0;
+      renderFeeRows(a.fees);
       document.getElementById('m-status-flag').value = a.visitStatus || '';
       calcBilling();
     }
@@ -2069,6 +2076,7 @@ function openAddModal(id) {
     document.getElementById('m-date').value = todayStr();
     ['m-patient','m-location','m-po','m-start','m-end'].forEach(x => document.getElementById(x).value = '');
     document.getElementById('m-miles').value = 0;
+    renderFeeRows([]);
     document.getElementById('m-status-flag').value = '';
   }
   document.getElementById('assign-modal').style.display = 'flex';
@@ -2104,6 +2112,69 @@ function onTypeChange() {
   calcBilling();
 }
 
+// ── ADDITIONAL FEES (supplies, tolls, parking, other) ─────
+// An assignment can carry extra fees on top of service + mileage. They are stored
+// on the assignment as fees: [{ type, label, amount }] and feesAmt (their sum, which
+// is included in the assignment's total). "label" is only used when type is "Other".
+const FEE_TYPES = ['Supplies', 'Tolls', 'Parking', 'Other'];
+const FEE_LABEL_MAX = 40;
+function roundCents(n) { return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
+function feeLabel(f) { return f.type === 'Other' ? (f.label || 'Other fee') : (f.type || 'Fee'); }
+function sumFees(fees) { return roundCents((fees || []).reduce((s, f) => s + (Number(f.amount) || 0), 0)); }
+// Extra invoice-table rows (one per fee) shown under an assignment's service/mileage rows.
+function feeRowsHtml(a) {
+  return (a.fees || []).map(f => `<tr><td></td><td style="font-size:12px;color:var(--ink3)">Additional fee — ${esc(feeLabel(f))}</td><td></td><td></td><td class="right" style="font-weight:500">$${(Number(f.amount) || 0).toFixed(2)}</td></tr>`).join('');
+}
+function addFeeRow(f) {
+  f = f || {};
+  const row = document.createElement('div');
+  row.className = 'fee-row';
+  row.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;';
+  const sel = document.createElement('select');
+  sel.className = 'fee-type';
+  sel.style.cssText = 'width:130px;';
+  FEE_TYPES.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; sel.appendChild(o); });
+  sel.value = FEE_TYPES.includes(f.type) ? f.type : 'Supplies';
+  const lab = document.createElement('input');
+  lab.type = 'text'; lab.className = 'fee-label'; lab.maxLength = FEE_LABEL_MAX;
+  lab.placeholder = 'What is it? (e.g. bridge toll)';
+  lab.style.cssText = 'flex:1;min-width:150px;';
+  lab.value = f.label || '';
+  const amt = document.createElement('input');
+  amt.type = 'number'; amt.className = 'fee-amt'; amt.min = '0'; amt.step = '0.01'; amt.placeholder = '0.00';
+  amt.style.cssText = 'width:110px;';
+  if (f.amount != null && f.amount !== '') amt.value = f.amount;
+  const rm = document.createElement('button');
+  rm.type = 'button'; rm.className = 'btn btn-ghost btn-sm'; rm.textContent = '✕'; rm.title = 'Remove this fee';
+  const syncLabel = () => { lab.style.display = sel.value === 'Other' ? '' : 'none'; };
+  sel.addEventListener('change', () => { syncLabel(); calcBilling(); });
+  amt.addEventListener('input', calcBilling);
+  rm.addEventListener('click', () => { row.remove(); calcBilling(); });
+  syncLabel();
+  row.append(sel, lab, amt, rm);
+  document.getElementById('m-fees-list').appendChild(row);
+}
+function renderFeeRows(fees) {
+  document.getElementById('m-fees-list').innerHTML = '';
+  (fees || []).forEach(addFeeRow);
+}
+// Reads the fee rows from the form. Rows with no amount are ignored; `invalid` is true
+// if any row has an amount that isn't a positive number.
+function readFeeForm() {
+  const fees = []; let invalid = false;
+  document.querySelectorAll('#m-fees-list .fee-row').forEach(row => {
+    const type = row.querySelector('.fee-type').value;
+    const raw = row.querySelector('.fee-amt').value.trim();
+    if (raw === '') return;
+    const amount = roundCents(parseFloat(raw));
+    if (!isFinite(amount) || amount <= 0) { invalid = true; return; }
+    const label = type === 'Other' ? row.querySelector('.fee-label').value.trim().slice(0, FEE_LABEL_MAX) : '';
+    fees.push({ type, label, amount });
+  });
+  return { fees, invalid };
+}
+function readFeesFromForm() { return readFeeForm().fees; }
+
 function calcBilling() {
   const c = clients.find(x => x.id === document.getElementById('m-client').value);
   const type = document.getElementById('m-type').value;
@@ -2122,9 +2193,10 @@ function calcBilling() {
   const b = calcBillableHours(start, end, r.minHours);
   const svc = b.billableHours * r.rate;
   const mil = miles * (c.mileageRate || 0);
+  const feesAmt = sumFees(readFeesFromForm());
   const el = document.getElementById('m-billing-preview');
   el.style.display = 'block';
-  el.innerHTML = `<strong>Billing preview</strong><br>Actual: ${fmtMins(b.actualMins)} → Billable: ${fmtMins(b.billableMins)}${b.overMin ? ' <span style="color:var(--green);font-weight:500">(rounded up 15 min)</span>' : ' <span style="color:var(--ink3)">(minimum applied)</span>'}<br>Service: ${b.billableHours%1===0?b.billableHours:b.billableHours.toFixed(2)}h × $${r.rate} = <strong>$${svc.toFixed(2)}</strong>${miles > 0 && c.mileageRate > 0 ? '<br>Mileage: '+miles+' mi × $'+c.mileageRate+' = <strong>$'+mil.toFixed(2)+'</strong>' : ''}<br><strong style="font-size:14px;color:var(--green)">Total: $${(svc+mil).toFixed(2)}</strong>`;
+  el.innerHTML = `<strong>Billing preview</strong><br>Actual: ${fmtMins(b.actualMins)} → Billable: ${fmtMins(b.billableMins)}${b.overMin ? ' <span style="color:var(--green);font-weight:500">(rounded up 15 min)</span>' : ' <span style="color:var(--ink3)">(minimum applied)</span>'}<br>Service: ${b.billableHours%1===0?b.billableHours:b.billableHours.toFixed(2)}h × $${r.rate} = <strong>$${svc.toFixed(2)}</strong>${miles > 0 && c.mileageRate > 0 ? '<br>Mileage: '+miles+' mi × $'+c.mileageRate+' = <strong>$'+mil.toFixed(2)+'</strong>' : ''}${feesAmt > 0 ? '<br>Additional fees: <strong>$'+feesAmt.toFixed(2)+'</strong>' : ''}<br><strong style="font-size:14px;color:var(--green)">Total: $${(svc+mil+feesAmt).toFixed(2)}</strong>`;
 }
 
 function saveAssignment() {
@@ -2141,6 +2213,10 @@ function saveAssignment() {
   const miles = parseFloat(document.getElementById('m-miles').value) || 0;
   const svc = b.billableHours * r.rate;
   const mil = miles * (c.mileageRate || 0);
+  const feeForm = readFeeForm();
+  if (feeForm.invalid) { showToast('⚠️', 'Each fee needs an amount above $0 — fix it or remove that fee'); return; }
+  const fees = feeForm.fees;
+  const feesAmt = sumFees(fees);
   const initialStatus = getInitialStatus(c);
   const existing = editingAssignId ? (assignments.find(x => x.id === editingAssignId) || trackedAssignments.find(x => x.id === editingAssignId)) : null;
 
@@ -2162,7 +2238,8 @@ function saveAssignment() {
     if (existing.start !== start || existing.end !== end) changes.push('Time: ' + existing.start + '–' + existing.end + ' → ' + start + '–' + end);
     if (existing.patientName !== patientName) changes.push('Party name: ' + existing.patientName + ' → ' + patientName);
     if (existing.miles !== (parseFloat(document.getElementById('m-miles').value) || 0)) changes.push('Miles: ' + existing.miles + ' → ' + (parseFloat(document.getElementById('m-miles').value) || 0));
-    if (existing.total !== (svc + mil)) changes.push('Total: $' + existing.total.toFixed(2) + ' → $' + (svc + mil).toFixed(2));
+    if (sumFees(existing.fees) !== feesAmt) changes.push('Additional fees: $' + sumFees(existing.fees).toFixed(2) + ' → $' + feesAmt.toFixed(2));
+    if (existing.total !== (svc + mil + feesAmt)) changes.push('Total: $' + existing.total.toFixed(2) + ' → $' + (svc + mil + feesAmt).toFixed(2));
     const newVisitStatus = document.getElementById('m-status-flag').value;
     if ((existing.visitStatus || '') !== newVisitStatus) {
       const label = (v) => v === 'no_show' ? 'No Show' : v === 'late_cancel' ? 'Late Cancellation' : v === 'double_booked' ? 'Double Booked' : 'Completed';
@@ -2177,7 +2254,7 @@ function saveAssignment() {
     type, patientName, po: document.getElementById('m-po').value, date, location: document.getElementById('m-location').value,
     start, end, billableHours: b.billableHours, actualMins: b.actualMins, billableMins: b.billableMins,
     overMin: b.overMin, rate: r.rate, minHours: r.minHours, serviceAmt: svc, miles,
-    mileageRate: c.mileageRate || 0, mileageAmt: mil, total: svc + mil,
+    mileageRate: c.mileageRate || 0, mileageAmt: mil, fees, feesAmt, total: svc + mil + feesAmt,
     notes: existing ? (existing.notes || '') : '', // no Notes box any more — keep only what an older record already had
     visitStatus: document.getElementById('m-status-flag').value,
     status: editingAssignId ? (assignments.find(x => x.id === editingAssignId)?.status || initialStatus) : initialStatus,
@@ -2489,7 +2566,7 @@ function saveAssignmentPayment() {
 function adjustBilledAmount(id, newTotal) {
   const adjustOne = (a) => {
     const mileageAmt = a.mileageAmt || 0;
-    const newServiceAmt = Math.max(0, newTotal - mileageAmt);
+    const newServiceAmt = Math.max(0, newTotal - mileageAmt - (a.feesAmt || 0));
     const changeNote = 'Billed amount adjusted: $' + a.total.toFixed(2) + ' → $' + newTotal.toFixed(2) + ' (accepted as paid in full)';
     return {
       ...a,
@@ -2511,7 +2588,7 @@ function adjustBilledAmount(id, newTotal) {
     const newSnapshot = h.snapshot.map(s => {
       if (s.id !== id) return s;
       const mileageAmt = s.mileageAmt || 0;
-      return {...s, total: newTotal, serviceAmt: Math.max(0, newTotal - mileageAmt)};
+      return {...s, total: newTotal, serviceAmt: Math.max(0, newTotal - mileageAmt - (s.feesAmt || 0))};
     });
     return {...h, snapshot: newSnapshot, total: newSnapshot.reduce((sum, s) => sum + s.total, 0)};
   });
@@ -2664,7 +2741,7 @@ function renderAssignments() {
       <div><div style="font-weight:500">${esc(a.clientName)} — <span class="badge ${typeTag(a.type)}">${esc(a.type)}</span>${visitStatusBadge(a.visitStatus)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${esc(a.patientName)}${a.po ? ' · PO: '+esc(a.po) : ''} · ${esc(a.location)||'—'}</div>${dupeWarning}</div>
       <div style="font-size:12px;color:var(--ink3)">${fmtTime(a.start)}–${fmtTime(a.end)}</div>
       <div style="font-size:12px;color:var(--ink3)">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}h<br><span style="font-size:11px">$${a.rate}/hr</span></div>
-      <div style="font-size:12px;color:var(--ink3)">${a.mileageAmt > 0 ? '$'+a.mileageAmt.toFixed(2) : '—'}</div>
+      <div style="font-size:12px;color:var(--ink3)">${a.mileageAmt > 0 ? '$'+a.mileageAmt.toFixed(2) : '—'}${a.feesAmt > 0 ? '<br><span style="font-size:11px">+ $'+a.feesAmt.toFixed(2)+' fees</span>' : ''}</div>
       <div style="font-weight:600;color:var(--green)">$${a.total.toFixed(2)}</div>
       <div style="display:flex;gap:3px;flex-wrap:wrap;">
         <button class="status-badge ${st.cls}" style="cursor:pointer;border:none;font-family:inherit;" onclick="openStatusModal('${a.id}')" title="Update status">${st.icon}</button>
@@ -2909,14 +2986,14 @@ function buildInvoiceRowsHtml(items) {
     const note = a.overMin
       ? `Actual: ${fmtMins(a.actualMins)}, billed: ${fmtMins(a.billableMins)} (15-min increments)`
       : (a.minHours ? `${a.minHours}hr minimum guaranteed` : '');
-    const svcAmt = a.serviceAmt != null ? a.serviceAmt : (a.total - (a.mileageAmt || 0));
+    const svcAmt = a.serviceAmt != null ? a.serviceAmt : (a.total - (a.mileageAmt || 0) - (a.feesAmt || 0));
     return `<tr>
       <td style="white-space:nowrap">${fmtDateLong(a.date)}</td>
       <td><div style="font-weight:500">${esc(a.type)} — ${esc(a.patientName)}</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">${esc(a.location)||''} · ${fmtTime(a.start)}–${fmtTime(a.end)}${note ? ' · ' + esc(note) : ''}${a.po ? ' · PO: '+esc(a.po) : ''}${invoiceStatusAndNotes(a)}</div></td>
       <td class="right">${a.billableHours%1===0?a.billableHours:a.billableHours.toFixed(2)}</td>
       <td class="right">$${a.rate.toFixed(2)}</td>
       <td class="right" style="font-weight:500">$${svcAmt.toFixed(2)}</td>
-    </tr>${a.mileageAmt > 0 ? `<tr><td></td><td style="font-size:12px;color:var(--ink3)">Mileage — ${a.miles} mi @ $${a.mileageRate}/mi</td><td></td><td></td><td class="right" style="font-weight:500">$${a.mileageAmt.toFixed(2)}</td></tr>` : ''}`;
+    </tr>${a.mileageAmt > 0 ? `<tr><td></td><td style="font-size:12px;color:var(--ink3)">Mileage — ${a.miles} mi @ $${a.mileageRate}/mi</td><td></td><td></td><td class="right" style="font-weight:500">$${a.mileageAmt.toFixed(2)}</td></tr>` : ''}${feeRowsHtml(a)}`;
   }).join('');
 }
 
@@ -2933,7 +3010,7 @@ function buildInvoiceHtml(opts) {
     invoiceNum, invoiceDate, dueDate, terms, statusBadgeHtml,
     clientName, clientEmail, interpreterIdLine,
     paymentTerms, paymentDetails,
-    rowsHtml, svcTotal, milTotal, grandTotal, notes,
+    rowsHtml, svcTotal, milTotal, feesTotal = 0, grandTotal, notes,
   } = opts;
   return `
     <div class="inv-hdr">
@@ -2952,6 +3029,7 @@ function buildInvoiceHtml(opts) {
       <div class="inv-totals">
         <div class="inv-trow"><span>Interpretation services</span><span>$${svcTotal.toFixed(2)}</span></div>
         ${milTotal > 0 ? `<div class="inv-trow"><span>Mileage</span><span>$${milTotal.toFixed(2)}</span></div>` : ''}
+        ${feesTotal > 0 ? `<div class="inv-trow"><span>Additional fees</span><span>$${feesTotal.toFixed(2)}</span></div>` : ''}
         <div class="inv-trow grand"><span>Total Due</span><span>$${grandTotal.toFixed(2)}</span></div>
       </div>
       ${notes ? `<div style="margin-top:24px;padding:14px 16px;background:var(--canvas);border-radius:8px;font-size:12px;color:var(--ink3)">${esc(notes)}</div>` : ''}
@@ -2973,14 +3051,15 @@ function renderInvoice() {
   const notes = ''; // free-text invoice notes were removed; the preview now matches what is actually sent
   const svcTotal = sel.reduce((s, a) => s + a.serviceAmt, 0);
   const milTotal = sel.reduce((s, a) => s + a.mileageAmt, 0);
-  const grand = svcTotal + milTotal;
+  const feesTotal = sel.reduce((s, a) => s + (a.feesAmt || 0), 0);
+  const grand = svcTotal + milTotal + feesTotal;
   const topClient = sel[0] ? clients.find(c => c.id === sel[0].clientId) : null;
   const interpreterIdLine = topClient?.interpreterId ? `<br>Interpreter ID: ${esc(topClient.interpreterId)}` : '';
   document.getElementById('invoice-preview').innerHTML = buildInvoiceHtml({
     invoiceNum: iN, invoiceDate: iD, dueDate: iDu, terms, statusBadgeHtml: PENDING_STATUS_BADGE,
     clientName: cN, clientEmail: cE, interpreterIdLine,
     paymentTerms: terms, paymentDetails: payment,
-    rowsHtml: buildInvoiceRowsHtml(sel), svcTotal, milTotal, grandTotal: grand, notes,
+    rowsHtml: buildInvoiceRowsHtml(sel), svcTotal, milTotal, feesTotal, grandTotal: grand, notes,
   });
 }
 
@@ -3039,8 +3118,9 @@ function reprintInvoice(historyId) {
   const h = history.find(x => x.id === historyId);
   if (!h || !h.snapshot) { showToast('⚠️', 'No saved details for this invoice'); return; }
 
-  const svcTotal = h.snapshot.reduce((s, a) => s + (a.serviceAmt || (a.total - (a.mileageAmt || 0))), 0);
+  const svcTotal = h.snapshot.reduce((s, a) => s + (a.serviceAmt || (a.total - (a.mileageAmt || 0) - (a.feesAmt || 0))), 0);
   const milTotal = h.snapshot.reduce((s, a) => s + (a.mileageAmt || 0), 0);
+  const feesTotal = h.snapshot.reduce((s, a) => s + (a.feesAmt || 0), 0);
   const grand = h.total;
 
   const rollStatus = invoiceRollup(h).status;
@@ -3056,7 +3136,7 @@ function reprintInvoice(historyId) {
     invoiceNum: h.num, invoiceDate: h.date, dueDate: h.dueDate, terms: h.terms || 'Net 30', statusBadgeHtml,
     clientName: h.client, clientEmail: h.clientEmail, interpreterIdLine,
     paymentTerms: h.terms || 'Net 30', paymentDetails: h.payment,
-    rowsHtml: buildInvoiceRowsHtml(h.snapshot), svcTotal, milTotal, grandTotal: grand, notes: h.notes,
+    rowsHtml: buildInvoiceRowsHtml(h.snapshot), svcTotal, milTotal, feesTotal, grandTotal: grand, notes: h.notes,
   });
 
   document.getElementById('reprint-modal').style.display = 'flex';
@@ -3123,8 +3203,9 @@ ${businessInfo.name}${businessInfo.businessName ? '\n' + businessInfo.businessNa
 
 function generateInvoicePdfForEmail(h) {
   // Reuse the same invoice rendering as reprintInvoice, but in a hidden container sized for print
-  const svcTotal = h.snapshot.reduce((s, a) => s + (a.serviceAmt != null ? a.serviceAmt : (a.total - (a.mileageAmt || 0))), 0);
+  const svcTotal = h.snapshot.reduce((s, a) => s + (a.serviceAmt != null ? a.serviceAmt : (a.total - (a.mileageAmt || 0) - (a.feesAmt || 0))), 0);
   const milTotal = h.snapshot.reduce((s, a) => s + (a.mileageAmt || 0), 0);
+  const feesTotal = h.snapshot.reduce((s, a) => s + (a.feesAmt || 0), 0);
   const grand = h.total;
 
   const interpreterIdLine = h.interpreterId ? '<br>Interpreter ID: ' + esc(h.interpreterId) : '';
@@ -3135,7 +3216,7 @@ function generateInvoicePdfForEmail(h) {
     invoiceNum: h.num, invoiceDate: h.date, dueDate: h.dueDate, terms: h.terms || 'Net 30', statusBadgeHtml: '',
     clientName: h.client, clientEmail: h.clientEmail, interpreterIdLine,
     paymentTerms: h.terms || 'Net 30', paymentDetails: h.payment,
-    rowsHtml: buildInvoiceRowsHtml(h.snapshot), svcTotal, milTotal, grandTotal: grand, notes: h.notes,
+    rowsHtml: buildInvoiceRowsHtml(h.snapshot), svcTotal, milTotal, feesTotal, grandTotal: grand, notes: h.notes,
   })}</div>`;
   document.body.appendChild(container);
 
@@ -3312,7 +3393,7 @@ function markSent(skipReset) {
     notes: '',
     total: sel.reduce((s,a) => s+a.total, 0), 
     count: sel.length,
-    snapshot: sel.map(a => ({ id: a.id, patientName: a.patientName, type: a.type, date: a.date, start: a.start, end: a.end, billableHours: a.billableHours, actualMins: a.actualMins, billableMins: a.billableMins, overMin: a.overMin, minHours: a.minHours, rate: a.rate, serviceAmt: a.serviceAmt, total: a.total, miles: a.miles, mileageRate: a.mileageRate, mileageAmt: a.mileageAmt, location: a.location, po: a.po, visitStatus: a.visitStatus, notes: a.notes }))
+    snapshot: sel.map(a => ({ id: a.id, patientName: a.patientName, type: a.type, date: a.date, start: a.start, end: a.end, billableHours: a.billableHours, actualMins: a.actualMins, billableMins: a.billableMins, overMin: a.overMin, minHours: a.minHours, rate: a.rate, serviceAmt: a.serviceAmt, total: a.total, miles: a.miles, mileageRate: a.mileageRate, mileageAmt: a.mileageAmt, fees: a.fees || [], feesAmt: a.feesAmt || 0, location: a.location, po: a.po, visitStatus: a.visitStatus, notes: a.notes }))
   });
   invCounter++;
   // Advance status to invoice_submitted for selected
