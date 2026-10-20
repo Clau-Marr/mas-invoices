@@ -253,6 +253,8 @@ textarea{resize:vertical;min-height:70px;}
     <button class="hdr-tab" onclick="openSettingsModal()" title="Business settings">⚙</button>
   </div>
 </div>
+<!-- Shown only when a subscription payment has failed (filled in by renderBillingBanner) -->
+<div id="billing-banner" style="display:none;position:sticky;top:58px;z-index:55;"></div>
 
 <div class="app">
 
@@ -876,6 +878,87 @@ async function subscribeToPlan(tier) {
     }
   } catch (e) {
     showToast('⚠️', 'Checkout error: ' + e.message);
+  }
+}
+
+// ── PAYMENT-FAILURE HANDLING ──────────────────────────────
+// The Stripe webhook (Supabase edge function "stripe-webhook") keeps each person's
+// subscription status in the `profiles` table: `subscription_status` and
+// `past_due_since` (the date of the FIRST failed payment, kept until they pay up).
+//   • failed payment, under 14 days ago → red banner with a countdown ("grace")
+//   • 14 days or more, or Stripe says "unpaid" → read-only: they can still view, print,
+//     export, back up and record payments, but cannot create new invoices/assignments
+// If the status can't be loaded for any reason, the app stays fully usable.
+const PAYMENT_GRACE_DAYS = 14;
+let billingInfo = null;
+
+async function loadBillingStatus() {
+  billingInfo = null;
+  try {
+    const { data, error } = await supabaseClient.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+    if (!error && data) {
+      billingInfo = { status: data.subscription_status || null, pastDueSince: data.past_due_since || null };
+    }
+  } catch (e) { /* stay fully usable */ }
+  renderBillingBanner();
+}
+
+// → { mode: 'ok' | 'grace' | 'suspended', daysLeft: number|null, deadline: Date|null }
+function billingState(now) {
+  const b = billingInfo;
+  if (!b) return { mode: 'ok', daysLeft: null, deadline: null };
+  if (b.status === 'unpaid') return { mode: 'suspended', daysLeft: 0, deadline: null };
+  if (b.status !== 'past_due') return { mode: 'ok', daysLeft: null, deadline: null };
+  if (!b.pastDueSince) return { mode: 'grace', daysLeft: null, deadline: null }; // date not recorded yet
+  const deadline = new Date(new Date(b.pastDueSince).getTime() + PAYMENT_GRACE_DAYS * 86400000);
+  const msLeft = deadline.getTime() - (now ? now.getTime() : Date.now());
+  if (msLeft <= 0) return { mode: 'suspended', daysLeft: 0, deadline };
+  return { mode: 'grace', daysLeft: Math.ceil(msLeft / 86400000), deadline };
+}
+
+function renderBillingBanner() {
+  const el = document.getElementById('billing-banner');
+  if (!el) return;
+  const st = billingState();
+  if (st.mode === 'ok') { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const dateTxt = st.deadline ? st.deadline.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+  const msg = st.mode === 'suspended'
+    ? '<strong>Your account is read-only because your subscription payment failed.</strong> You can still view, print and download your data and record payments. Update your payment method to create new invoices again.'
+    : '<strong>Your last subscription payment failed.</strong> ' + (st.deadline
+        ? 'Please update your payment method by ' + esc(dateTxt) + ' (' + st.daysLeft + ' day' + (st.daysLeft === 1 ? '' : 's') + ' left) to keep creating invoices.'
+        : 'Please update your payment method to keep creating invoices.');
+  el.style.display = 'block';
+  el.innerHTML = `<div style="background:${st.mode === 'suspended' ? '#7a1f1f' : '#b3261e'};color:#fff;padding:10px 24px;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;font-size:13px;line-height:1.45;box-shadow:0 2px 8px rgba(0,0,0,.15);">
+    <span>${st.mode === 'suspended' ? '🔒' : '⚠️'} ${msg}</span>
+    <button class="btn btn-sm" style="background:#fff;color:#7a1f1f;font-weight:600;" onclick="openBillingPortal()">Update payment method</button>
+  </div>`;
+}
+
+// Blocks "create something new" actions while the account is read-only.
+// Returns true if the action may continue.
+function requireActiveAccount() {
+  if (billingState().mode !== 'suspended') return true;
+  showToast('🔒', 'Account is read-only — update your payment method to create new invoices');
+  return false;
+}
+
+// Opens Stripe's secure customer portal (update card, see invoices, cancel) via our own
+// server-side function, the same way checkout works. No card details touch Novium.
+async function openBillingPortal() {
+  if (!currentUser) { showToast('⚠️', 'Please sign in first'); return; }
+  showToast('🔄', 'Opening secure billing page…');
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    const resp = await fetch(supabaseUrl + '/functions/v1/create-portal-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+      body: JSON.stringify({})
+    });
+    const data = await resp.json();
+    if (data.url) window.location.href = data.url;
+    else showToast('⚠️', data.error || 'Could not open the billing page');
+  } catch (e) {
+    showToast('⚠️', 'Billing page error: ' + e.message);
   }
 }
 
@@ -1671,6 +1754,7 @@ function doSilentAuth() {
 }
 
 function fetchEvents() {
+  if (!requireActiveAccount()) return;
   if (!accessToken) { showToast('⚠️', 'Not connected'); return; }
   const start = document.getElementById('range-start').value;
   const end = document.getElementById('range-end').value;
@@ -2041,6 +2125,7 @@ function selAllEv() { importedEvents.forEach(ev => { const alreadyDone = ev.alre
 function selNoneEv() { importedEvents.forEach(ev => { const c = document.getElementById('ievchk-'+ev.id); if (c) { c.checked = false; document.getElementById('iev-'+ev.id).classList.remove('checked'); } }); }
 
 function importSelected() {
+  if (!requireActiveAccount()) return;
   const sel = importedEvents.filter(ev => { const c = document.getElementById('ievchk-'+ev.id); return c && c.checked && !c.disabled; });
   if (!sel.length) { showToast('⚠️', 'Select at least one'); return; }
   sel.forEach(ev => {
@@ -2128,6 +2213,7 @@ function fmtTime(t) {
 
 // ── ASSIGNMENT MODAL ──────────────────────────────────────
 function openAddModal(id) {
+  if (!id && !requireActiveAccount()) return; // editing an existing assignment stays allowed
   editingAssignId = id || null;
   document.getElementById('assign-modal-title').textContent = id ? 'Edit assignment' : 'Add manually';
   const sel = document.getElementById('m-client');
@@ -2304,6 +2390,7 @@ function calcBilling() {
 }
 
 function saveAssignment() {
+  if (!editingAssignId && !requireActiveAccount()) return;
   const cid = document.getElementById('m-client').value;
   const type = document.getElementById('m-type').value;
   const date = document.getElementById('m-date').value;
@@ -3024,6 +3111,7 @@ function renderBatchPreview() {
 }
 
 function generateBatchInvoice() {
+  if (!requireActiveAccount()) return;
   const clientId = document.getElementById('batch-client').value;
   const range = getBatchDateRange();
   const items = trackedAssignments.filter(a => a.clientId === clientId && a.date >= range.from && a.date <= range.to && a.status !== 'paid');
@@ -3040,6 +3128,7 @@ function generateBatchInvoice() {
 
 // ── INVOICE ───────────────────────────────────────────────
 function goToStep3() {
+  if (!requireActiveAccount()) return;
   const sel = getSelected();
   if (!sel.length) { showToast('⚠️', 'Select at least one assignment'); return; }
 
@@ -3481,6 +3570,7 @@ ${pendingEmailPdfBase64}
 }
 
 function markSent(skipReset) {
+  if (!requireActiveAccount()) return;
   const sel = getSelected();
   const billedClient = sel[0] ? clients.find(c => c.id === sel[0].clientId) : null;
   const newId = uid();
@@ -4727,6 +4817,7 @@ window.addEventListener('load', async () => {
 
   checkSingleTab(async () => {
     await loadData();
+    loadBillingStatus(); // payment-failure banner / read-only mode (never blocks loading)
     if (droppedHomeAddress) saveData(); // one-time: persist removal of the old home-address field
     showPanel('panel-connect');
     setStep(1);
