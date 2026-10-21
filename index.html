@@ -1313,15 +1313,19 @@ let lastSyncedHistory = new Map();
 
 // ── PERSISTENT STORAGE ───────────────────────────────────
 let cloudSaveTimeout = null;
+let signingOut = false;          // true while signing out: nothing may save any more
+let cloudSaveFailed = false;     // the last cloud save did not go through
 let accountDeleting = false;     // true while/after the account is being deleted: nothing may save any more
 let cloudSavePending = false;  // a change is waiting for its debounced cloud save
 let cloudSaveRunning = false;  // a cloud save is in flight right now
-function saveData() {
-  if (accountDeleting) return;
-  if (isDemoMode) return; // never persist demo data over real saved data
-  // Keep an instant local cache too — the app still has your data right away
-  // on reload even if the cloud save is still in flight or the connection
-  // briefly drops.
+// ── THE BROWSER'S LOCAL COPY ─────────────────────────────
+// A quick copy of the data lives in this browser so a slow connection never loses work.
+// It is tagged with the account it belongs to (mas_cache_user) so it can never be mixed
+// into a different account, and it is wiped when someone signs out.
+const LOCAL_DATA_KEYS = ['mas_clients', 'mas_history', 'mas_counter', 'mas_tracked', 'mas_business_info',
+  'mas_manual_overrides', 'mas_cache_user', 'mas_drive_backup_ids', 'mas_drive_file_id',
+  'mas_google_connected', 'mas_last_backup'];
+function writeLocalCache() {
   try {
     localStorage.setItem('mas_clients', JSON.stringify(clients));
     localStorage.setItem('mas_history', JSON.stringify(history));
@@ -1329,7 +1333,28 @@ function saveData() {
     localStorage.setItem('mas_tracked', JSON.stringify(trackedAssignments));
     localStorage.setItem('mas_business_info', JSON.stringify(businessInfo));
     localStorage.setItem('mas_manual_overrides', JSON.stringify(manualSentOverrides));
-  } catch(e) { console.log('Save error:', e); }
+    if (currentUser) localStorage.setItem('mas_cache_user', currentUser.id);
+  } catch (e) { console.log('Save error:', e); }
+}
+function clearLocalUserData() {
+  try {
+    LOCAL_DATA_KEYS.forEach(k => localStorage.removeItem(k));
+    Object.keys(localStorage).filter(k => k.startsWith('novium_plan_nudge_')).forEach(k => localStorage.removeItem(k));
+  } catch (e) { /* storage blocked: nothing to clear */ }
+}
+// true if something in memory has not reached the cloud yet
+function hasUnsyncedChanges() {
+  const differs = (arr, map) => arr.some(x => JSON.stringify(x) !== JSON.stringify(map.get(x.id))) || [...map.keys()].some(id => !arr.some(x => x.id === id));
+  return cloudSaveFailed || differs(clients, lastSyncedClients) || differs(trackedAssignments, lastSyncedAssignments) || differs(history, lastSyncedHistory);
+}
+
+function saveData() {
+  if (accountDeleting || signingOut) return;
+  if (isDemoMode) return; // never persist demo data over real saved data
+  // Keep an instant local cache too — the app still has your data right away
+  // on reload even if the cloud save is still in flight or the connection
+  // briefly drops.
+  writeLocalCache();
 
   // Save to the cloud (Supabase), debounced — saveData() fires after every
   // small change, so this waits half a second after the LAST change before
@@ -1395,11 +1420,11 @@ async function syncTableToCloud(tableName, currentArray, lastSyncedMap, toRowFn)
 
   if (changedRows.length) {
     const { error } = await supabaseClient.from(tableName).upsert(changedRows);
-    if (error) { console.log(tableName + ' sync error:', error.message); return; }
+    if (error) { console.log(tableName + ' sync error:', error.message); cloudSaveFailed = true; return; }
   }
   if (toDeleteIds.length) {
     const { error } = await supabaseClient.from(tableName).delete().in('id', toDeleteIds);
-    if (error) { console.log(tableName + ' delete error:', error.message); return; }
+    if (error) { console.log(tableName + ' delete error:', error.message); cloudSaveFailed = true; return; }
   }
 
   // Only mark these as "synced" after both calls above succeeded, so a
@@ -1415,9 +1440,10 @@ async function syncTableToCloud(tableName, currentArray, lastSyncedMap, toRowFn)
 // that's cheap enough to just upsert in full every time.
 async function saveToCloud() {
   if (!currentUser) return;
-  if (accountDeleting) return;
+  if (accountDeleting || signingOut) return;
   cloudSavePending = false;
   cloudSaveRunning = true;
+  cloudSaveFailed = false;
   try {
     await Promise.all([
       syncTableToCloud('clients', clients, lastSyncedClients, clientToRow),
@@ -1427,10 +1453,11 @@ async function saveToCloud() {
         user_id: currentUser.id,
         data: { businessInfo, manualSentOverrides, invCounter },
         updated_at: new Date().toISOString()
-      }),
+      }).then(r => { if (r && r.error) cloudSaveFailed = true; return r; }),
     ]);
   } catch (e) {
     console.log('Cloud save error:', e);
+    cloudSaveFailed = true;
   } finally {
     cloudSaveRunning = false;
   }
@@ -1697,6 +1724,11 @@ function showDriveSaveIndicator() {
 // it's available on every device from then on.
 async function loadData() {
   let loadedFromTables = false;
+  // A local copy that belongs to a DIFFERENT account must never be used or merged
+  try {
+    const owner = localStorage.getItem('mas_cache_user');
+    if (owner && currentUser && owner !== currentUser.id) clearLocalUserData();
+  } catch (e) { /* fine */ }
   try {
     const [clientsRes, assignmentsRes, historyRes, settingsRes] = await Promise.all([
       supabaseClient.from('clients').select('*').eq('user_id', currentUser.id),
@@ -1738,6 +1770,7 @@ async function loadData() {
     console.log('Cloud load error:', e);
   }
 
+  if (loadedFromTables) writeLocalCache(); // the cloud copy is the truth: refresh the local copy and mark it as this account's
   if (!loadedFromTables) {
     const migrated = loadFromLocalStorage();
     if (migrated) {
@@ -1807,6 +1840,8 @@ function applyLoadedData(d) {
 // anything meaningful was found.
 function loadFromLocalStorage() {
   try {
+    const owner = localStorage.getItem('mas_cache_user');
+    if (owner && currentUser && owner !== currentUser.id) return false; // someone else's copy
     const c = localStorage.getItem('mas_clients');
     const h = localStorage.getItem('mas_history');
     const n = localStorage.getItem('mas_counter');
@@ -5055,7 +5090,7 @@ function showToast(icon, msg) { const t = document.getElementById('toast'); docu
 // >>> RELEASE CHECKLIST: change APP_VERSION below every time a new version is published
 // >>> (any change to this file that people should pick up). Forgetting is harmless (no
 // >>> banner appears for that release) but means old tabs are not told.
-const APP_VERSION = '2026-10-21.3';
+const APP_VERSION = '2026-10-21.4';
 const VERSION_CHECK_EVERY_MS = 10 * 60 * 1000;
 let lastVersionCheck = 0;
 let newVersionShown = null;
@@ -5155,11 +5190,27 @@ window.addEventListener('load', async () => {
   });
 });
 
-function signOut() {
-  supabaseClient.auth.signOut().then(() => {
-    window.location.href = 'auth.html';
-  });
+// Sign out: first make sure nothing is waiting to be saved (if it can't be saved, ask),
+// then wipe this browser's local copy so the next person on this computer sees nothing.
+async function signOut() {
+  if (signingOut) return;
+  if (!isDemoMode && currentUser) {
+    try {
+      if (cloudSavePending) { clearTimeout(cloudSaveTimeout); await saveToCloud(); }
+      for (let i = 0; i < 50 && cloudSaveRunning; i++) await new Promise(r => setTimeout(r, 100)); // wait up to 5s for a save in flight
+    } catch (e) { /* handled by the check below */ }
+    if (hasUnsyncedChanges() &&
+        !confirm('Your latest changes could not be saved to your account (are you offline?).\n\nIf you sign out now they will be lost.\n\nSign out anyway?')) {
+      return;
+    }
+  }
+  signingOut = true; // no more saves from here on
+  clearTimeout(cloudSaveTimeout);
+  clearLocalUserData();
+  try { await supabaseClient.auth.signOut(); } catch (e) { /* leave anyway */ }
+  goToUrl('auth.html');
 }
+
 
 // Browsers flag/block popup-style requests (like Google's silent token reissue)
 // when they're triggered automatically with no real user action behind them —
