@@ -255,6 +255,8 @@ textarea{resize:vertical;min-height:70px;}
 </div>
 <!-- Shown only when a subscription payment has failed (filled in by renderBillingBanner) -->
 <div id="billing-banner" style="display:none;position:sticky;top:58px;z-index:55;"></div>
+<!-- Gentle note when this month's billing is above the plan's range (filled in by renderPlanNudge) -->
+<div id="plan-nudge" style="display:none;position:sticky;top:58px;z-index:54;"></div>
 
 <div class="app">
 
@@ -911,6 +913,7 @@ async function loadBillingStatus() {
   } catch (e) { /* stay fully usable */ }
   renderBillingBanner();
   renderSubscriptionSection();
+  renderPlanNudge();
 }
 
 // Settings → Subscription: people who already subscribe see their plan and a
@@ -921,6 +924,52 @@ const PLAN_INFO = { starter: ['Starter', '$9.99/mo'], growing: ['Growing', '$19.
 function hasSubscription() {
   return !!billingInfo && ['active', 'trialing', 'past_due', 'unpaid'].includes(billingInfo.status);
 }
+// ── PLAN FIT (gentle nudge) ──────────────────────────────
+// The plans are priced by how much is billed through Novium each month. Nothing is
+// locked or blocked over this — when the invoices created THIS calendar month add up
+// to more than the plan's range, a note suggests the plan that fits. Computed here in
+// the browser from the invoices already loaded; nothing new is stored or sent.
+const PLAN_LIMITS = { starter: 2000, growing: 6000, established: Infinity };
+const PLAN_ORDER = ['starter', 'growing', 'established'];
+function monthKey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+function billedThisMonth() {
+  const key = monthKey(new Date());
+  return history.reduce((s, h) => ((h.date || '').startsWith(key) ? s + (Number(h.total) || 0) : s), 0);
+}
+// → null (not applicable) or { billed, limit, over, suggested }
+function planFit() {
+  if (!hasSubscription() || isDemoMode) return null;
+  const limit = PLAN_LIMITS[billingInfo.tier];
+  if (limit === undefined) return null; // unknown plan name
+  const billed = billedThisMonth();
+  const over = billed > limit;
+  const suggested = over ? PLAN_ORDER.find(p => PLAN_LIMITS[p] >= billed) : null;
+  return { billed, limit, over, suggested };
+}
+const money0 = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+function nudgeDismissKey() { return 'novium_plan_nudge_' + monthKey(new Date()) + '_' + (billingInfo?.tier || ''); }
+function dismissPlanNudge() {
+  try { localStorage.setItem(nudgeDismissKey(), '1'); } catch (e) { /* fine */ }
+  renderPlanNudge();
+}
+function renderPlanNudge() {
+  const el = document.getElementById('plan-nudge');
+  if (!el) return;
+  const hide = () => { el.style.display = 'none'; el.innerHTML = ''; };
+  const fit = planFit();
+  // The payment-failed banner takes priority; and only show this when over the range
+  if (!fit || !fit.over || billingState().mode !== 'ok') { hide(); return; }
+  try { if (localStorage.getItem(nudgeDismissKey())) { hide(); return; } } catch (e) { /* show it */ }
+  const cur = PLAN_INFO[billingInfo.tier];
+  const sug = PLAN_INFO[fit.suggested];
+  el.style.display = 'block';
+  el.innerHTML = `<div style="background:var(--gold2);color:#3a2a00;padding:10px 24px;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;font-size:13px;line-height:1.45;box-shadow:0 2px 8px rgba(0,0,0,.12);">
+    <span>📈 <strong>You've billed ${esc(money0(fit.billed))} this month</strong>, above your ${esc(cur ? cur[0] : 'current')} plan's ${esc(money0(fit.limit))} range. Please switch to the <strong>${esc(sug ? sug[0] : 'next')}</strong> plan${sug ? ' (' + esc(sug[1]) + ')' : ''}.</span>
+    <button class="btn btn-sm" style="background:#16130f;color:#fff;" onclick="openBillingPortal()">Change plan</button>
+    <button class="btn btn-ghost btn-sm" onclick="dismissPlanNudge()" title="Hide this for the rest of the month">✕</button>
+  </div>`;
+}
+
 function renderSubscriptionSection() {
   const manage = document.getElementById('sub-manage');
   const plans = document.getElementById('sub-plans');
@@ -940,7 +989,15 @@ function renderSubscriptionSection() {
       <div style="font-weight:600;font-size:13px;">${esc(planTxt)}</div>
       <div style="font-size:12px;color:${st.mode === 'ok' ? 'var(--ink3)' : '#b3261e'};margin-top:3px;">${esc(statusTxt)}</div>
     </div>
-    <button class="btn btn-outline btn-sm" style="width:100%;" onclick="openBillingPortal()">Manage subscription</button>
+    ${(() => {
+      const fit = planFit();
+      if (!fit || fit.limit === Infinity) return '';
+      const sug = fit.suggested && PLAN_INFO[fit.suggested];
+      return `<div style="font-size:12px;margin:-2px 0 10px;color:${fit.over ? '#b3261e' : 'var(--ink3)'};line-height:1.5;">${fit.over
+        ? '📈 Billed this month: <strong>' + esc(money0(fit.billed)) + '</strong> — above your plan\'s ' + esc(money0(fit.limit)) + ' range. Please switch to the <strong>' + esc(sug ? sug[0] : 'next') + '</strong> plan.'
+        : 'Billed this month: ' + esc(money0(fit.billed)) + ' of ' + esc(money0(fit.limit)) + ' covered by your plan.'}</div>`;
+    })()}
+    <button class="btn btn-outline btn-sm" style="width:100%;" onclick="openBillingPortal()">${planFit()?.over ? 'Change plan' : 'Manage subscription'}</button>
     <div style="font-size:11px;color:var(--ink3);margin-top:6px;line-height:1.5;">Update your card, see invoices, or cancel. Opens Stripe's secure billing page.</div>`;
 }
 
@@ -3946,6 +4003,7 @@ function historyVisibleInvoices(rollups) {
 }
 
 function renderHistory() {
+  renderPlanNudge(); // invoice totals may have changed
   const el = document.getElementById('history-list');
   const filterVal = document.getElementById('pay-filter')?.value || 'all';
   const summaryBar = document.getElementById('pay-summary-bar');
