@@ -762,6 +762,7 @@ textarea{resize:vertical;min-height:70px;}
     <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Subscription</div>
     <!-- Shown instead of the plan buttons for people who already subscribe (filled in by renderSubscriptionSection) -->
     <div id="sub-manage" style="display:none;"></div>
+    <div id="sub-trial" style="display:none;"></div>
     <div id="sub-plans">
     <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5;">Choose the plan that matches how much you bill through Novium each month. You'll be taken to a secure Stripe checkout page.</div>
     <div style="display:flex;flex-direction:column;gap:8px;">
@@ -907,7 +908,8 @@ async function loadBillingStatus() {
         status: data.subscription_status || null,
         pastDueSince: data.past_due_since || null,
         tier: data.subscription_tier || null,
-        periodEnd: data.current_period_end || null
+        periodEnd: data.current_period_end || null,
+        trialEndsAt: data.trial_ends_at || null
       };
     }
   } catch (e) { /* stay fully usable */ }
@@ -974,6 +976,17 @@ function renderSubscriptionSection() {
   const manage = document.getElementById('sub-manage');
   const plans = document.getElementById('sub-plans');
   if (!manage || !plans) return;
+  const trialEl = document.getElementById('sub-trial');
+  if (trialEl) {
+    const ts = billingState();
+    if (!hasSubscription() && (ts.mode === 'trial' || ts.mode === 'trial_ended')) {
+      const d = ts.deadline.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      trialEl.style.display = 'block';
+      trialEl.innerHTML = ts.mode === 'trial'
+        ? `<div style="padding:10px 14px;background:var(--canvas);border-radius:var(--r-sm);margin-bottom:12px;font-size:12px;line-height:1.5;">🎁 <strong>Free trial:</strong> ${ts.daysLeft} day${ts.daysLeft === 1 ? '' : 's'} left (ends ${esc(d)}). No card needed until you choose a plan.</div>`
+        : `<div style="padding:10px 14px;background:var(--canvas);border-radius:var(--r-sm);margin-bottom:12px;font-size:12px;line-height:1.5;color:#b3261e;">🔒 <strong>${ts.ended === 'subscription' ? 'Your subscription has ended' : 'Your free trial ended ' + esc(d)}.</strong> Your account is read-only until you choose a plan.</div>`;
+    } else { trialEl.style.display = 'none'; trialEl.innerHTML = ''; }
+  }
   if (!hasSubscription()) { manage.style.display = 'none'; manage.innerHTML = ''; plans.style.display = 'block'; return; }
   const b = billingInfo;
   const plan = PLAN_INFO[b.tier];
@@ -1004,14 +1017,27 @@ function renderSubscriptionSection() {
 // → { mode: 'ok' | 'grace' | 'suspended', daysLeft: number|null, deadline: Date|null }
 function billingState(now) {
   const b = billingInfo;
-  if (!b) return { mode: 'ok', daysLeft: null, deadline: null };
+  const ok = { mode: 'ok', daysLeft: null, deadline: null };
+  if (!b) return ok;
+  const t = now ? now.getTime() : Date.now();
   if (b.status === 'unpaid') return { mode: 'suspended', daysLeft: 0, deadline: null };
-  if (b.status !== 'past_due') return { mode: 'ok', daysLeft: null, deadline: null };
-  if (!b.pastDueSince) return { mode: 'grace', daysLeft: null, deadline: null }; // date not recorded yet
-  const deadline = new Date(new Date(b.pastDueSince).getTime() + PAYMENT_GRACE_DAYS * 86400000);
-  const msLeft = deadline.getTime() - (now ? now.getTime() : Date.now());
-  if (msLeft <= 0) return { mode: 'suspended', daysLeft: 0, deadline };
-  return { mode: 'grace', daysLeft: Math.ceil(msLeft / 86400000), deadline };
+  if (b.status === 'past_due') {
+    if (!b.pastDueSince) return { mode: 'grace', daysLeft: null, deadline: null }; // date not recorded yet
+    const deadline = new Date(new Date(b.pastDueSince).getTime() + PAYMENT_GRACE_DAYS * 86400000);
+    const msLeft = deadline.getTime() - t;
+    if (msLeft <= 0) return { mode: 'suspended', daysLeft: 0, deadline };
+    return { mode: 'grace', daysLeft: Math.ceil(msLeft / 86400000), deadline };
+  }
+  if (b.status === 'active' || b.status === 'trialing') return ok;
+  // No subscription (never subscribed, or it has ended): the free trial that starts at
+  // sign-up (profiles.trial_ends_at, set by the database). No trial date recorded = never
+  // lock (that is how existing accounts are kept fully open).
+  if (!b.trialEndsAt) return ok;
+  const end = new Date(b.trialEndsAt);
+  if (isNaN(end.getTime())) return ok;
+  const msLeft = end.getTime() - t;
+  if (msLeft > 0) return { mode: 'trial', daysLeft: Math.ceil(msLeft / 86400000), deadline: end };
+  return { mode: 'trial_ended', daysLeft: 0, deadline: end, ended: b.status === 'canceled' ? 'subscription' : 'trial' };
 }
 
 function renderBillingBanner() {
@@ -1020,6 +1046,25 @@ function renderBillingBanner() {
   const st = billingState();
   if (st.mode === 'ok') { el.style.display = 'none'; el.innerHTML = ''; return; }
   const dateTxt = st.deadline ? st.deadline.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+  // Free trial (no subscription yet): a friendly note in the last 7 days; read-only once it ends
+  if (st.mode === 'trial') {
+    if (st.daysLeft > 7) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = 'block';
+    el.innerHTML = `<div style="background:var(--teal);color:#fff;padding:10px 24px;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;font-size:13px;line-height:1.45;box-shadow:0 2px 8px rgba(0,0,0,.12);">
+      <span>🎁 <strong>Your free trial ends ${esc(dateTxt)}</strong> (${st.daysLeft} day${st.daysLeft === 1 ? '' : 's'} left). Choose a plan any time to keep creating invoices.</span>
+      <button class="btn btn-sm" style="background:#fff;color:var(--teal);font-weight:600;" onclick="openSettingsModal()">Choose a plan</button>
+    </div>`;
+    return;
+  }
+  if (st.mode === 'trial_ended') {
+    const what = st.ended === 'subscription' ? 'Your subscription has ended' : 'Your free trial has ended';
+    el.style.display = 'block';
+    el.innerHTML = `<div style="background:#7a1f1f;color:#fff;padding:10px 24px;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;font-size:13px;line-height:1.45;box-shadow:0 2px 8px rgba(0,0,0,.15);">
+      <span>🔒 <strong>${what}, so your account is read-only.</strong> You can still view, print and download your data and record payments. Choose a plan to create new invoices again.</span>
+      <button class="btn btn-sm" style="background:#fff;color:#7a1f1f;font-weight:600;" onclick="openSettingsModal()">Choose a plan</button>
+    </div>`;
+    return;
+  }
   const msg = st.mode === 'suspended'
     ? '<strong>Your account is read-only because your subscription payment failed.</strong> You can still view, print and download your data and record payments. Update your payment method to create new invoices again.'
     : '<strong>Your last subscription payment failed.</strong> ' + (st.deadline
@@ -1035,7 +1080,12 @@ function renderBillingBanner() {
 // Blocks "create something new" actions while the account is read-only.
 // Returns true if the action may continue.
 function requireActiveAccount() {
-  if (billingState().mode !== 'suspended') return true;
+  const mode = billingState().mode;
+  if (mode === 'trial_ended') {
+    showToast('🔒', 'Your free trial has ended — choose a plan in Settings to create new invoices');
+    return false;
+  }
+  if (mode !== 'suspended') return true;
   showToast('🔒', 'Account is read-only — update your payment method to create new invoices');
   return false;
 }
