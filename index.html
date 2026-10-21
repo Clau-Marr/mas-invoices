@@ -758,6 +758,9 @@ textarea{resize:vertical;min-height:70px;}
   <div class="divider"></div>
   <div style="margin-bottom:14px;">
     <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Subscription</div>
+    <!-- Shown instead of the plan buttons for people who already subscribe (filled in by renderSubscriptionSection) -->
+    <div id="sub-manage" style="display:none;"></div>
+    <div id="sub-plans">
     <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5;">Choose the plan that matches how much you bill through Novium each month. You'll be taken to a secure Stripe checkout page.</div>
     <div style="display:flex;flex-direction:column;gap:8px;">
       <button class="btn btn-outline btn-sm" style="justify-content:space-between;width:100%;" onclick="subscribeToPlan('starter')">
@@ -769,6 +772,7 @@ textarea{resize:vertical;min-height:70px;}
       <button class="btn btn-outline btn-sm" style="justify-content:space-between;width:100%;" onclick="subscribeToPlan('established')">
         <span>Established — $6,000+/mo billed</span><span>$34.99/mo</span>
       </button>
+    </div>
     </div>
 
     <div class="divider" style="margin:14px 0;"></div>
@@ -897,10 +901,47 @@ async function loadBillingStatus() {
   try {
     const { data, error } = await supabaseClient.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
     if (!error && data) {
-      billingInfo = { status: data.subscription_status || null, pastDueSince: data.past_due_since || null };
+      billingInfo = {
+        status: data.subscription_status || null,
+        pastDueSince: data.past_due_since || null,
+        tier: data.subscription_tier || null,
+        periodEnd: data.current_period_end || null
+      };
     }
   } catch (e) { /* stay fully usable */ }
   renderBillingBanner();
+  renderSubscriptionSection();
+}
+
+// Settings → Subscription: people who already subscribe see their plan and a
+// "Manage subscription" button (Stripe's secure billing page: update card, see
+// invoices, cancel) instead of the buy-a-plan buttons — the server also refuses a
+// second subscription, so this just avoids showing a button that can't work.
+const PLAN_INFO = { starter: ['Starter', '$9.99/mo'], growing: ['Growing', '$19.99/mo'], established: ['Established', '$34.99/mo'] };
+function hasSubscription() {
+  return !!billingInfo && ['active', 'trialing', 'past_due', 'unpaid'].includes(billingInfo.status);
+}
+function renderSubscriptionSection() {
+  const manage = document.getElementById('sub-manage');
+  const plans = document.getElementById('sub-plans');
+  if (!manage || !plans) return;
+  if (!hasSubscription()) { manage.style.display = 'none'; manage.innerHTML = ''; plans.style.display = 'block'; return; }
+  const b = billingInfo;
+  const plan = PLAN_INFO[b.tier];
+  const planTxt = plan ? plan[0] + ' plan · ' + plan[1] : 'Your plan';
+  const renews = b.periodEnd ? new Date(b.periodEnd).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+  const st = billingState();
+  const statusTxt = st.mode === 'suspended' ? '🔒 Payment failed — account is read-only'
+    : st.mode === 'grace' ? '⚠️ Payment failed — please update your payment method'
+    : 'Active' + (renews ? ' · renews ' + renews : '');
+  plans.style.display = 'none';
+  manage.style.display = 'block';
+  manage.innerHTML = `<div style="padding:12px 14px;background:var(--canvas);border-radius:var(--r-sm);margin-bottom:10px;">
+      <div style="font-weight:600;font-size:13px;">${esc(planTxt)}</div>
+      <div style="font-size:12px;color:${st.mode === 'ok' ? 'var(--ink3)' : '#b3261e'};margin-top:3px;">${esc(statusTxt)}</div>
+    </div>
+    <button class="btn btn-outline btn-sm" style="width:100%;" onclick="openBillingPortal()">Manage subscription</button>
+    <div style="font-size:11px;color:var(--ink3);margin-top:6px;line-height:1.5;">Update your card, see invoices, or cancel. Opens Stripe's secure billing page.</div>`;
 }
 
 // → { mode: 'ok' | 'grace' | 'suspended', daysLeft: number|null, deadline: Date|null }
@@ -3647,6 +3688,7 @@ function openSettingsModal() {
       driveEl.style.color = 'var(--ink2)';
     }
   }
+  renderSubscriptionSection();
   document.getElementById('settings-modal').style.display = 'flex';
 }
 
