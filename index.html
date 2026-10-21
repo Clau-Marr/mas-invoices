@@ -1010,7 +1010,7 @@ function renderSubscriptionSection() {
         ? '📈 Billed this month: <strong>' + esc(money0(fit.billed)) + '</strong> — above your plan\'s ' + esc(money0(fit.limit)) + ' range. Please switch to the <strong>' + esc(sug ? sug[0] : 'next') + '</strong> plan.'
         : 'Billed this month: ' + esc(money0(fit.billed)) + ' of ' + esc(money0(fit.limit)) + ' covered by your plan.'}</div>`;
     })()}
-    <button class="btn btn-outline btn-sm" style="width:100%;" onclick="openBillingPortal()">${planFit()?.over ? 'Change plan' : 'Manage subscription'}</button>
+    <button class="btn btn-outline btn-sm" style="width:100%;" onclick="openBillingPortal()">Manage subscription</button>
     <div style="font-size:11px;color:var(--ink3);margin-top:6px;line-height:1.5;">Update your card, see invoices, or cancel. Opens Stripe's secure billing page.</div>`;
 }
 
@@ -4971,7 +4971,7 @@ function showToast(icon, msg) { const t = document.getElementById('toast'); docu
 // >>> RELEASE CHECKLIST: change APP_VERSION below every time a new version is published
 // >>> (any change to this file that people should pick up). Forgetting is harmless (no
 // >>> banner appears for that release) but means old tabs are not told.
-const APP_VERSION = '2026-10-21.1';
+const APP_VERSION = '2026-10-21.2';
 const VERSION_CHECK_EVERY_MS = 10 * 60 * 1000;
 let lastVersionCheck = 0;
 let newVersionShown = null;
