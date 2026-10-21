@@ -1232,6 +1232,8 @@ let lastSyncedHistory = new Map();
 
 // ── PERSISTENT STORAGE ───────────────────────────────────
 let cloudSaveTimeout = null;
+let cloudSavePending = false;  // a change is waiting for its debounced cloud save
+let cloudSaveRunning = false;  // a cloud save is in flight right now
 function saveData() {
   if (isDemoMode) return; // never persist demo data over real saved data
   // Keep an instant local cache too — the app still has your data right away
@@ -1249,6 +1251,7 @@ function saveData() {
   // Save to the cloud (Supabase), debounced — saveData() fires after every
   // small change, so this waits half a second after the LAST change before
   // actually sending it, instead of one network request per keystroke.
+  cloudSavePending = true;
   clearTimeout(cloudSaveTimeout);
   cloudSaveTimeout = setTimeout(saveToCloud, 600);
 
@@ -1329,6 +1332,8 @@ async function syncTableToCloud(tableName, currentArray, lastSyncedMap, toRowFn)
 // that's cheap enough to just upsert in full every time.
 async function saveToCloud() {
   if (!currentUser) return;
+  cloudSavePending = false;
+  cloudSaveRunning = true;
   try {
     await Promise.all([
       syncTableToCloud('clients', clients, lastSyncedClients, clientToRow),
@@ -1342,6 +1347,8 @@ async function saveToCloud() {
     ]);
   } catch (e) {
     console.log('Cloud save error:', e);
+  } finally {
+    cloudSaveRunning = false;
   }
 }
 
@@ -4954,6 +4961,89 @@ function typeTag(t) { const m = { 'Medical follow-up':'badge-medical','Medical a
 function showToast(icon, msg) { const t = document.getElementById('toast'); document.getElementById('t-icon').textContent = icon; document.getElementById('t-msg').textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3200); }
 
 // ── INIT ──────────────────────────────────────────────────
+// ── "NEW VERSION AVAILABLE" ──────────────────────────────
+// This is a single-page app: a tab that stays open keeps running the code it loaded,
+// even after a newer version is published. An old tab could then save data in an old
+// shape (for example dropping fields a newer version added). So open tabs quietly ask
+// the server what the current APP_VERSION is and, when it differs from the one they
+// are running, show a "reload" bar. Nothing reloads by itself: it could interrupt an
+// invoice in progress.
+// >>> RELEASE CHECKLIST: change APP_VERSION below every time a new version is published
+// >>> (any change to this file that people should pick up). Forgetting is harmless (no
+// >>> banner appears for that release) but means old tabs are not told.
+const APP_VERSION = '2026-10-21.1';
+const VERSION_CHECK_EVERY_MS = 10 * 60 * 1000;
+let lastVersionCheck = 0;
+let newVersionShown = null;
+
+async function checkForNewVersion() {
+  if (newVersionShown) return;
+  const now = Date.now();
+  if (now - lastVersionCheck < 60 * 1000) return; // at most once a minute
+  lastVersionCheck = now;
+  try {
+    // unique query string + no-store so neither the browser nor a CDN hands back an old copy
+    const resp = await fetch(location.pathname + '?_vcheck=' + now, { cache: 'no-store' });
+    if (!resp.ok) return;
+    const m = (await resp.text()).match(/const APP_VERSION = '([^']+)'/);
+    if (m && m[1] !== APP_VERSION) showNewVersionBanner(m[1]);
+  } catch (e) { /* offline or blocked — try again later */ }
+}
+
+function showNewVersionBanner(serverVersion) {
+  if (document.getElementById('new-version-banner')) return;
+  newVersionShown = serverVersion;
+  const bar = document.createElement('div');
+  bar.id = 'new-version-banner';
+  bar.style.cssText = 'position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:9000;background:#16130f;color:#fff;padding:12px 16px;border-radius:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px);font-size:13px;line-height:1.45;box-shadow:0 8px 30px rgba(0,0,0,.35);';
+  bar.innerHTML = `<span>🔄 <strong>A new version of Novium is available.</strong> Finish what you're doing, then reload.</span>
+    <button class="btn btn-sm" id="new-version-reload" style="background:#fff;color:#16130f;font-weight:600;" onclick="reloadForNewVersion()">Reload now</button>
+    <button class="btn btn-ghost btn-sm" style="color:#fff;" onclick="dismissNewVersionBanner()" title="Remind me again later">Later</button>`;
+  document.body.appendChild(bar);
+}
+
+// "Later" hides the bar for a while, then lets the next check show it again
+function dismissNewVersionBanner() {
+  const bar = document.getElementById('new-version-banner');
+  if (bar) bar.remove();
+  setTimeout(() => { newVersionShown = null; lastVersionCheck = 0; checkForNewVersion(); }, 30 * 60 * 1000);
+}
+
+// Saves any change that is still waiting to be sent (never in demo mode: that would
+// overwrite real data with sample data), then loads a fresh copy of the page.
+async function reloadForNewVersion() {
+  const btn = document.getElementById('new-version-reload');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    if (!isDemoMode && currentUser) {
+      if (cloudSavePending) { clearTimeout(cloudSaveTimeout); await saveToCloud(); }
+      for (let i = 0; i < 50 && cloudSaveRunning; i++) await new Promise(r => setTimeout(r, 100)); // wait up to 5s for a save in flight
+    }
+  } catch (e) { /* reload anyway: the local copy and Drive backup are still there */ }
+  // A new address makes the browser fetch the page again instead of reusing a cached copy
+  const u = new URL(location.href);
+  u.searchParams.set('_v', newVersionShown || String(Date.now()));
+  goToUrl(u.toString());
+}
+function goToUrl(url) { location.replace(url); } // its own function so tests can intercept it
+
+// After such a reload, tidy the address bar again
+(function cleanVersionParam() {
+  try {
+    const u = new URL(location.href);
+    if (u.searchParams.has('_v') || u.searchParams.has('_vcheck')) {
+      u.searchParams.delete('_v'); u.searchParams.delete('_vcheck');
+      history.replaceState(null, '', u.pathname + (u.search || '') + u.hash);
+    }
+  } catch (e) { /* cosmetic only */ }
+})();
+
+function startVersionChecks() {
+  setTimeout(checkForNewVersion, 45 * 1000); // catches a page that was loaded from an old cached copy
+  setInterval(checkForNewVersion, VERSION_CHECK_EVERY_MS);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForNewVersion(); });
+}
+
 window.addEventListener('load', async () => {
   // Require a signed-in account before anything else loads — this is what
   // ties the app to YOUR data instead of showing a blank slate or (worse)
@@ -4968,6 +5058,7 @@ window.addEventListener('load', async () => {
   checkSingleTab(async () => {
     await loadData();
     loadBillingStatus(); // payment-failure banner / read-only mode (never blocks loading)
+    startVersionChecks(); // "new version available" bar for tabs left open
     if (droppedHomeAddress) saveData(); // one-time: persist removal of the old home-address field
     showPanel('panel-connect');
     setStep(1);
