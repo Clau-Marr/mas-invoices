@@ -322,7 +322,11 @@ supabaseClient.auth.onAuthStateChange((event) => {
     }
     return;
   }
-  if (session) window.location.href = '/index.html';
+  if (session) { window.location.href = '/index.html'; return; }
+  // Sent here right after "Delete my account" finished
+  if (new URLSearchParams(window.location.search).get('deleted') === '1') {
+    showMsg('Your account and its data have been deleted. Thank you for trying Novium.', 'success');
+  }
 })();
 </script>
 </body>

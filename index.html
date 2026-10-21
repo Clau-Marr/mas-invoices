@@ -808,6 +808,30 @@ textarea{resize:vertical;min-height:70px;}
   <div style="margin-bottom:6px;">
     <div style="font-weight:600;font-size:14px;margin-bottom:8px;">Account</div>
     <button class="btn btn-outline btn-sm" onclick="signOut()">🚪 Sign out</button>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--canvas2);">
+      <button class="btn btn-danger btn-sm" onclick="openDeleteAccountModal()">🗑 Delete my account…</button>
+      <div style="font-size:11px;color:var(--ink3);margin-top:6px;line-height:1.5;">Permanently removes your account and all your data from Novium.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Delete my account -->
+<div class="modal-bg" id="delete-account-modal" style="display:none" onclick="if(event.target===this && !accountDeleting)closeModal('delete-account-modal')">
+<div class="modal" style="max-width:480px;">
+  <div class="modal-title">Delete my account</div>
+  <div style="font-size:13px;line-height:1.6;color:var(--ink2);">
+    <p style="margin:0 0 10px;"><strong>This permanently deletes your Novium account and everything in it</strong> — your clients, assignments, invoices, payment records and settings. It can't be undone.</p>
+    <p style="margin:0 0 10px;">If you have a subscription, it is cancelled right away.</p>
+    <p style="margin:0 0 14px;">Backup files that Novium already saved in <em>your own</em> Google Drive (the "Novium Backups" folder) belong to you and are <strong>not</strong> deleted — delete that folder yourself if you want them gone.</p>
+  </div>
+  <div class="info info-gold" style="margin-bottom:14px;">💾 Want a copy first? <button class="btn btn-outline btn-xs" style="margin-left:6px;" onclick="downloadBackup()">⬇ Download backup</button></div>
+  <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Type <span style="font-family:monospace;">DELETE</span> to confirm</label>
+  <input type="text" id="delete-account-confirm" autocomplete="off" oninput="onDeleteConfirmInput()" placeholder="DELETE" style="margin-bottom:10px;">
+  <div id="delete-account-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:10px;line-height:1.5;"></div>
+  <div style="display:flex;justify-content:flex-end;gap:8px;">
+    <button class="btn btn-ghost" id="delete-account-cancel" onclick="closeModal('delete-account-modal')">Cancel</button>
+    <button class="btn btn-danger" id="delete-account-go" onclick="deleteMyAccount()" disabled style="opacity:.5;">Delete my account permanently</button>
   </div>
 </div>
 </div>
@@ -926,6 +950,63 @@ const PLAN_INFO = { starter: ['Starter', '$9.99/mo'], growing: ['Growing', '$19.
 function hasSubscription() {
   return !!billingInfo && ['active', 'trialing', 'past_due', 'unpaid'].includes(billingInfo.status);
 }
+// ── DELETE MY ACCOUNT ────────────────────────────────────
+// The server function "delete-account" does the real work (cancels the Stripe
+// subscription, deletes this person's rows, then the sign-in itself). This is only the
+// confirmation screen and the clean-up of this browser afterwards.
+function openDeleteAccountModal() {
+  if (isDemoMode) { showToast('ℹ️', 'Exit demo mode first'); return; }
+  closeModal('settings-modal');
+  const input = document.getElementById('delete-account-confirm');
+  input.value = '';
+  document.getElementById('delete-account-error').style.display = 'none';
+  onDeleteConfirmInput();
+  document.getElementById('delete-account-modal').style.display = 'flex';
+  setTimeout(() => input.focus(), 50);
+}
+function onDeleteConfirmInput() {
+  const ok = document.getElementById('delete-account-confirm').value.trim() === 'DELETE';
+  const btn = document.getElementById('delete-account-go');
+  btn.disabled = !ok || accountDeleting;
+  btn.style.opacity = btn.disabled ? '.5' : '1';
+}
+async function deleteMyAccount() {
+  if (accountDeleting || isDemoMode || !currentUser) return;
+  if (document.getElementById('delete-account-confirm').value.trim() !== 'DELETE') return;
+  const btn = document.getElementById('delete-account-go');
+  const errEl = document.getElementById('delete-account-error');
+  errEl.style.display = 'none';
+  accountDeleting = true;               // stop every save while this runs
+  clearTimeout(cloudSaveTimeout);
+  btn.disabled = true; btn.textContent = 'Deleting…'; btn.style.opacity = '.5';
+  document.getElementById('delete-account-cancel').disabled = true;
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    const resp = await fetch(supabaseUrl + '/functions/v1/delete-account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+      body: JSON.stringify({ confirm: 'DELETE' })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) throw new Error(data.error || 'Could not delete the account. Nothing was changed — please try again or contact support.');
+  } catch (e) {
+    accountDeleting = false;            // failed: saving works again
+    errEl.textContent = e.message || 'Something went wrong. Please try again.';
+    errEl.style.display = 'block';
+    btn.textContent = 'Delete my account permanently';
+    document.getElementById('delete-account-cancel').disabled = false;
+    onDeleteConfirmInput();
+    return;
+  }
+  // Deleted on the server: remove Google access and every local copy in this browser, then leave
+  try { disconnectGoogle(); } catch (e) { /* fine */ }
+  try {
+    Object.keys(localStorage).filter(k => k.startsWith('mas_') || k.startsWith('novium_')).forEach(k => localStorage.removeItem(k));
+  } catch (e) { /* fine */ }
+  try { await supabaseClient.auth.signOut(); } catch (e) { /* the account is gone anyway */ }
+  window.location.href = 'auth.html?deleted=1';
+}
+
 // ── PLAN FIT (gentle nudge) ──────────────────────────────
 // The plans are priced by how much is billed through Novium each month. Nothing is
 // locked or blocked over this — when the invoices created THIS calendar month add up
@@ -1232,9 +1313,11 @@ let lastSyncedHistory = new Map();
 
 // ── PERSISTENT STORAGE ───────────────────────────────────
 let cloudSaveTimeout = null;
+let accountDeleting = false;     // true while/after the account is being deleted: nothing may save any more
 let cloudSavePending = false;  // a change is waiting for its debounced cloud save
 let cloudSaveRunning = false;  // a cloud save is in flight right now
 function saveData() {
+  if (accountDeleting) return;
   if (isDemoMode) return; // never persist demo data over real saved data
   // Keep an instant local cache too — the app still has your data right away
   // on reload even if the cloud save is still in flight or the connection
@@ -1332,6 +1415,7 @@ async function syncTableToCloud(tableName, currentArray, lastSyncedMap, toRowFn)
 // that's cheap enough to just upsert in full every time.
 async function saveToCloud() {
   if (!currentUser) return;
+  if (accountDeleting) return;
   cloudSavePending = false;
   cloudSaveRunning = true;
   try {
@@ -4971,7 +5055,7 @@ function showToast(icon, msg) { const t = document.getElementById('toast'); docu
 // >>> RELEASE CHECKLIST: change APP_VERSION below every time a new version is published
 // >>> (any change to this file that people should pick up). Forgetting is harmless (no
 // >>> banner appears for that release) but means old tabs are not told.
-const APP_VERSION = '2026-10-21.2';
+const APP_VERSION = '2026-10-21.3';
 const VERSION_CHECK_EVERY_MS = 10 * 60 * 1000;
 let lastVersionCheck = 0;
 let newVersionShown = null;
