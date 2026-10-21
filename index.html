@@ -1324,7 +1324,7 @@ let cloudSaveRunning = false;  // a cloud save is in flight right now
 // into a different account, and it is wiped when someone signs out.
 const LOCAL_DATA_KEYS = ['mas_clients', 'mas_history', 'mas_counter', 'mas_tracked', 'mas_business_info',
   'mas_manual_overrides', 'mas_cache_user', 'mas_drive_backup_ids', 'mas_drive_file_id',
-  'mas_google_connected', 'mas_last_backup'];
+  'mas_google_connected', 'mas_last_backup', 'novium_last_active'];
 function writeLocalCache() {
   try {
     localStorage.setItem('mas_clients', JSON.stringify(clients));
@@ -5090,7 +5090,7 @@ function showToast(icon, msg) { const t = document.getElementById('toast'); docu
 // >>> RELEASE CHECKLIST: change APP_VERSION below every time a new version is published
 // >>> (any change to this file that people should pick up). Forgetting is harmless (no
 // >>> banner appears for that release) but means old tabs are not told.
-const APP_VERSION = '2026-10-21.4';
+const APP_VERSION = '2026-10-21.5';
 const VERSION_CHECK_EVERY_MS = 10 * 60 * 1000;
 let lastVersionCheck = 0;
 let newVersionShown = null;
@@ -5163,6 +5163,118 @@ function startVersionChecks() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForNewVersion(); });
 }
 
+// ── AUTOMATIC SIGN-OUT AFTER 30 MINUTES OF NO USE ────────
+// Protects people who walk away from (or share) a computer. "Use" = mouse click, key press,
+// touch, scrolling or moving the mouse in Novium. At 29 minutes a 60-second warning offers
+// "Stay signed in"; at 30 minutes pending changes are saved and the person is signed out.
+// Everything is measured in real clock time, so it also works when the tab is in the
+// background or the computer slept. The last-active time is kept in this browser, so a tab
+// that was simply closed (never signed out) also expires: reopening after 30+ minutes
+// asks for the password again.
+const IDLE_LIMIT_MS = 30 * 60 * 1000;
+const IDLE_WARN_AT_MS = 29 * 60 * 1000;
+let lastActivityAt = Date.now();
+let lastActivityWrite = 0;
+let idleWarningShown = false;
+let idleTimerStarted = false;
+
+function readStoredActivity() {
+  try { return Number(localStorage.getItem('novium_last_active')) || 0; } catch (e) { return 0; }
+}
+// Called when the page opens: true if this browser was last used more than 30 minutes ago
+function idleExpiredOnLoad() {
+  const t = readStoredActivity();
+  return t > 0 && Date.now() - t > IDLE_LIMIT_MS;
+}
+
+function markActive(evt) {
+  // While the warning is up, only a deliberate action (click, key, touch) keeps the session:
+  // a bumped mouse or a scroll should not silently cancel it.
+  if (idleWarningShown && evt && ['mousemove', 'scroll', 'wheel'].includes(evt.type)) return;
+  const now = Date.now();
+  lastActivityAt = now;
+  if (idleWarningShown) hideIdleWarning();
+  if (now - lastActivityWrite > 10000) { // remember it for a closed-and-reopened tab (not on every mouse move)
+    lastActivityWrite = now;
+    try { localStorage.setItem('novium_last_active', String(now)); } catch (e) { /* fine */ }
+  }
+}
+
+function showIdleWarning(msLeft) {
+  let el = document.getElementById('idle-warning');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'idle-warning';
+    el.style.cssText = 'position:fixed;inset:0;background:rgba(22,19,15,.55);display:flex;align-items:center;justify-content:center;z-index:9500;padding:20px;';
+    el.innerHTML = `<div style="background:#fff;border-radius:16px;padding:28px;max-width:400px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+      <div style="font-size:40px;margin-bottom:10px;">⏱</div>
+      <div style="font-family:'Fraunces',serif;font-size:20px;margin-bottom:8px;">Still there?</div>
+      <div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:18px;">To protect your data, you'll be signed out in <strong id="idle-countdown">60</strong> seconds because Novium hasn't been used for a while. Your saved entries stay safe.</div>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+        <button class="btn btn-teal" id="idle-stay" onclick="markActive({type:'click'})">Stay signed in</button>
+        <button class="btn btn-outline" onclick="signOut()">Sign out now</button>
+      </div></div>`;
+    document.body.appendChild(el);
+  }
+  idleWarningShown = true;
+  const c = document.getElementById('idle-countdown');
+  if (c) c.textContent = String(Math.max(0, Math.ceil(msLeft / 1000)));
+}
+function hideIdleWarning() {
+  idleWarningShown = false;
+  const el = document.getElementById('idle-warning');
+  if (el) el.remove();
+}
+
+function idleTick() {
+  if (accountDeleting || signingOut) return;
+  const idle = Date.now() - lastActivityAt;
+  if (idle >= IDLE_LIMIT_MS) { idleSignOut(); return; }
+  if (idle >= IDLE_WARN_AT_MS) showIdleWarning(IDLE_LIMIT_MS - idle);
+  else if (idleWarningShown) hideIdleWarning();
+}
+
+// Save what can be saved, sign out, and tell the sign-in page why (and whether a draft was open)
+async function idleSignOut() {
+  if (signingOut || accountDeleting) return;
+  const hadDraft = assignments.length > 0;
+  hideIdleWarning();
+  if (!isDemoMode && currentUser) {
+    try {
+      if (cloudSavePending) { clearTimeout(cloudSaveTimeout); await saveToCloud(); }
+      for (let i = 0; i < 50 && cloudSaveRunning; i++) await new Promise(r => setTimeout(r, 100));
+    } catch (e) { /* checked below */ }
+  }
+  // If something could not be saved (offline), keep the local copy so it is not thrown away;
+  // it is tagged with its owner, so nobody else can ever read it.
+  const keepLocal = !isDemoMode && currentUser && hasUnsyncedChanges();
+  signingOut = true;
+  clearTimeout(cloudSaveTimeout);
+  if (!keepLocal) clearLocalUserData();
+  try { localStorage.removeItem('novium_last_active'); } catch (e) { /* fine */ }
+  try { await supabaseClient.auth.signOut(); } catch (e) { /* leave anyway */ }
+  goToUrl('auth.html?idle=1' + (hadDraft ? '&draft=1' : ''));
+}
+
+// Opening the app after the browser sat unused for 30+ minutes (tab closed without signing out)
+async function idleSignOutOnLoad() {
+  signingOut = true;
+  clearLocalUserData();
+  try { await supabaseClient.auth.signOut(); } catch (e) { /* leave anyway */ }
+  goToUrl('auth.html?idle=1');
+}
+
+function startIdleWatch() {
+  if (idleTimerStarted) return;
+  idleTimerStarted = true;
+  lastActivityAt = Date.now();
+  markActive({ type: 'start' });
+  ['mousedown', 'keydown', 'touchstart', 'pointerdown', 'wheel', 'scroll', 'mousemove'].forEach(evt =>
+    document.addEventListener(evt, markActive, { passive: true, capture: true }));
+  setInterval(idleTick, 5000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') idleTick(); });
+}
+
 window.addEventListener('load', async () => {
   // Require a signed-in account before anything else loads — this is what
   // ties the app to YOUR data instead of showing a blank slate or (worse)
@@ -5174,10 +5286,14 @@ window.addEventListener('load', async () => {
   }
   currentUser = session.user;
 
+  // Browser left unused for 30+ minutes (e.g. tab closed without signing out): ask for the password again
+  if (idleExpiredOnLoad()) { await idleSignOutOnLoad(); return; }
+
   checkSingleTab(async () => {
     await loadData();
     loadBillingStatus(); // payment-failure banner / read-only mode (never blocks loading)
     startVersionChecks(); // "new version available" bar for tabs left open
+    startIdleWatch(); // automatic sign-out after 30 minutes of no use
     if (droppedHomeAddress) saveData(); // one-time: persist removal of the old home-address field
     showPanel('panel-connect');
     setStep(1);

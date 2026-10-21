@@ -323,9 +323,17 @@ supabaseClient.auth.onAuthStateChange((event) => {
     return;
   }
   if (session) { window.location.href = '/index.html'; return; }
+  const q = new URLSearchParams(window.location.search);
   // Sent here right after "Delete my account" finished
-  if (new URLSearchParams(window.location.search).get('deleted') === '1') {
+  if (q.get('deleted') === '1') {
     showMsg('Your account and its data have been deleted. Thank you for trying Novium.', 'success');
+  }
+  // Sent here after the automatic sign-out for inactivity
+  if (q.get('idle') === '1') {
+    showMsg('You were signed out after 30 minutes of inactivity, to protect your data.' +
+      (q.get('draft') === '1'
+        ? ' You had an invoice draft open: your entries are saved as Logged. After signing in, click “Generate batch invoice” to pick up where you left off.'
+        : ''), 'success');
   }
 })();
 </script>
