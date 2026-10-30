@@ -306,7 +306,7 @@ textarea{resize:vertical;min-height:70px;}
       </div>
       <div class="info info-gold" style="margin-top:18px;">
         <strong>📌 Calendar entry format</strong><br>
-        <strong>Title:</strong> <code style="background:rgba(0,0,0,.07);padding:1px 6px;border-radius:3px;">Agency Name — Assignment Type — Party Name — PO:12345</code> (PO optional)<br>
+        <strong>Title:</strong> <code style="background:rgba(0,0,0,.07);padding:1px 6px;border-radius:3px;">Agency — Assignment Type — Name — PO:12345</code> (PO optional)<br>
         <strong>Location:</strong> Hospital name &nbsp;·&nbsp; <strong>Description:</strong> <code style="background:rgba(0,0,0,.07);padding:1px 6px;border-radius:3px;">Miles: 12</code> (or "12 miles") or blank &mdash; only the number is read
       </div>
     </div>
@@ -315,7 +315,7 @@ textarea{resize:vertical;min-height:70px;}
       <div class="card-hdr">
         <div><div class="card-title">Imported assignments</div><div class="card-sub" id="events-sub">Select which to invoice.</div></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <input type="text" id="events-search" placeholder="🔍 Search agency or party name…" oninput="filterEvents()" style="width:220px;padding:7px 12px;font-size:12px;">
+          <input type="text" id="events-search" placeholder="🔍 Search agency or name…" oninput="filterEvents()" style="width:220px;padding:7px 12px;font-size:12px;">
           <button class="btn btn-outline btn-sm" onclick="selAllEv()">Select all</button>
           <button class="btn btn-ghost btn-sm" onclick="selNoneEv()">Clear</button>
         </div>
@@ -402,7 +402,7 @@ textarea{resize:vertical;min-height:70px;}
   <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:12px;">
     <div><div class="page-title">Payments & Reconciliation</div><div class="page-sub">Track what's been paid, what's outstanding, and flag short payments.</div></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <input type="search" id="history-search" placeholder="🔍 Search invoice #, client, party name, PO, date, amount…" oninput="onHistorySearch()" onkeydown="if(event.key==='Escape'){this.value='';onHistorySearch();}" autocomplete="off" style="width:310px;max-width:100%;font-size:12px;padding:7px 12px;">
+      <input type="search" id="history-search" placeholder="🔍 Search invoice #, client, name, PO, date, amount…" oninput="onHistorySearch()" onkeydown="if(event.key==='Escape'){this.value='';onHistorySearch();}" autocomplete="off" style="width:310px;max-width:100%;font-size:12px;padding:7px 12px;">
       <select id="pay-filter" onchange="renderHistory()" style="width:auto;font-size:12px;padding:6px 10px;">
         <option value="all">All invoices</option>
         <option value="unpaid">Outstanding only</option>
@@ -497,7 +497,7 @@ textarea{resize:vertical;min-height:70px;}
   <div class="info info-teal" id="m-rate-info" style="display:none;margin-bottom:14px;"></div>
   <div class="form-grid g2" style="margin-bottom:14px;">
     <div class="fg"><label>Date</label><input type="date" id="m-date"></div>
-    <div class="fg"><label>Party name</label><input type="text" id="m-patient" placeholder="First Last"></div>
+    <div class="fg"><label>Name</label><input type="text" id="m-patient" placeholder="First Last"></div>
     <div class="fg"><label>Location / Hospital</label><input type="text" id="m-location"></div>
     <div class="fg"><label>PO number (optional)</label><input type="text" id="m-po"></div>
     <div class="fg"><label>Start time</label><input type="time" id="m-start" oninput="calcBilling()"></div>
@@ -2701,7 +2701,7 @@ function saveAssignment() {
   if (editingAssignId && existing) {
     const changes = [];
     if (existing.start !== start || existing.end !== end) changes.push('Time: ' + existing.start + '–' + existing.end + ' → ' + start + '–' + end);
-    if (existing.patientName !== patientName) changes.push('Party name: ' + existing.patientName + ' → ' + patientName);
+    if (existing.patientName !== patientName) changes.push('Name: ' + existing.patientName + ' → ' + patientName);
     if (existing.miles !== (parseFloat(document.getElementById('m-miles').value) || 0)) changes.push('Miles: ' + existing.miles + ' → ' + (parseFloat(document.getElementById('m-miles').value) || 0));
     if (sumFees(existing.fees) !== feesAmt) changes.push('Additional fees: $' + sumFees(existing.fees).toFixed(2) + ' → $' + feesAmt.toFixed(2));
     if (existing.total !== (svc + mil + feesAmt)) changes.push('Total: $' + existing.total.toFixed(2) + ' → $' + (svc + mil + feesAmt).toFixed(2));
@@ -3198,7 +3198,7 @@ function renderAssignments() {
     const st = getStatusLabel(a.status);
     const isDupe = dupeCounts[dupeKeyOf(a)] > 1;
     const dupeWarning = isDupe
-      ? `<div style="font-size:11px;color:var(--red);font-weight:600;margin-top:2px;">⚠ Possible duplicate — another assignment in this draft has the same party name, date, and time</div>`
+      ? `<div style="font-size:11px;color:var(--red);font-weight:600;margin-top:2px;">⚠ Possible duplicate — another assignment in this draft has the same name, date, and time</div>`
       : '';
     return `<div class="assign-row selected" id="ar-${a.id}" style="${isDupe ? 'background:var(--red-light);border-color:#f5c5c0;' : ''}">
       <input type="checkbox" id="chk-${a.id}" checked onchange="document.getElementById('ar-${a.id}').classList.toggle('selected',this.checked);updateSummary()">
@@ -3356,7 +3356,7 @@ function renderBatchPreview() {
   html += `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px;">
     <thead><tr style="border-bottom:1.5px solid var(--canvas2);">
       <th style="text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">Date</th>
-      <th style="text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">Party Name</th>
+      <th style="text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">Name</th>
       <th style="text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">Type</th>
       <th style="text-align:center;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">Start</th>
       <th style="text-align:center;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);">End</th>
@@ -3422,7 +3422,7 @@ function goToStep3() {
     const ok = confirm(
       '⚠️ Possible duplicate assignment(s) selected for this invoice:\n\n' +
       dupeNames.join('\n') +
-      '\n\nSame party name, date, and time appears more than once — this usually means the same real visit got added twice by mistake.\n\n' +
+      '\n\nSame name, date, and time appears more than once — this usually means the same real visit got added twice by mistake.\n\n' +
       'Continue anyway?'
     );
     if (!ok) return;
@@ -4122,7 +4122,7 @@ function updateClientDropdowns() {
 // ── HISTORY SEARCH ────────────────────────────────────────
 // Filters the History list as you type. Every word you type must appear somewhere in
 // the invoice: its number, client, client email, date (e.g. "Oct 1", "October",
-// "2026-10-01") or total — or in one of its assignments (party name, PO number,
+// "2026-10-01") or total — or in one of its assignments (name, PO number,
 // location, type, an additional fee). Accents and punctuation are ignored, so "maria"
 // finds "María". Nothing is saved; this only changes what is shown on screen.
 let historySearchTimer = null;
@@ -4821,7 +4821,7 @@ function buildOutstandingPrintHtml() {
     const items = byClient[clientName].slice().sort((a, b) => a.date.localeCompare(b.date));
     const clientTotal = items.reduce((s, a) => s + remainingOwedFor(a), 0);
     html += `<div class="grp"><span>${esc(clientName)}</span><span>$${clientTotal.toFixed(2)} outstanding</span></div>`;
-    html += '<table><thead><tr><th>Date</th><th>Party</th><th>Type</th><th>Invoice</th><th class="r">Owed</th></tr></thead><tbody>';
+    html += '<table><thead><tr><th>Date</th><th>Name</th><th>Type</th><th>Invoice</th><th class="r">Owed</th></tr></thead><tbody>';
     items.forEach(a => {
       const partial = isPartiallyPaid(a);
       html += `<tr><td>${esc(fmtDateShort(a.date))}</td><td>${esc(a.patientName)}</td><td>${esc(a.type)}</td><td>${esc(invoiceNumForAssignment(a.id))}${partial ? '<br><span style="color:#555;">$' + amountReceivedFor(a).toFixed(2) + ' of $' + Number(a.total).toFixed(2) + ' received</span>' : ''}</td><td class="r">$${remainingOwedFor(a).toFixed(2)}</td></tr>`;
@@ -4940,7 +4940,7 @@ function exportMileageCSV() {
 
   if (!entries.length) { showToast('⚠️', 'No mileage entries to export'); return; }
 
-  const rows = [['Date', 'Agency', 'Party Name', 'Location', 'Miles', 'Rate', 'Billed']];
+  const rows = [['Date', 'Agency', 'Name', 'Location', 'Miles', 'Rate', 'Billed']];
   entries.forEach(a => {
     rows.push([a.date, a.clientName, a.patientName, a.location || '', a.miles, a.mileageRate || 0, (a.mileageAmt || 0).toFixed(2)]);
   });
@@ -5090,7 +5090,7 @@ function showToast(icon, msg) { const t = document.getElementById('toast'); docu
 // >>> RELEASE CHECKLIST: change APP_VERSION below every time a new version is published
 // >>> (any change to this file that people should pick up). Forgetting is harmless (no
 // >>> banner appears for that release) but means old tabs are not told.
-const APP_VERSION = '2026-10-21.5';
+const APP_VERSION = '2026-10-29.1';
 const VERSION_CHECK_EVERY_MS = 10 * 60 * 1000;
 let lastVersionCheck = 0;
 let newVersionShown = null;
