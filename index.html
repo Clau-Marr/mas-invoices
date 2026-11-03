@@ -2216,7 +2216,14 @@ if (m[4] && m[4].toUpperCase().startsWith('PO:')) po = m[4].replace(/^PO:/i, '')
         t.start === startTime && t.end === endTime &&
         normalizeForMatch(t.patientName) === normalizeForMatch(patientName)
       );
-      if (identicalSlotForPatient.length > 1) alreadyTracked = null;
+      if (identicalSlotForPatient.length > 1) {
+        // Several identical records (e.g. repeated no-shows): pair them off one by one, most
+        // advanced status first, each record used for only ONE calendar event in this import.
+        // N events + N sent records => all N show as sent; extra events stay unsent.
+        const free = identicalSlotForPatient.filter(t => !ctx.usedIds.has(t.id));
+        alreadyTracked = bestByStatus(free);
+        if (alreadyTracked) ctx.usedIds.add(alreadyTracked.id);
+      }
     }
   }
 
@@ -2278,7 +2285,8 @@ function buildEventMatchContext() {
   // work on the next calendar re-import.
   const idsInInvoices = new Set();
   history.forEach(h => (h.snapshot || []).forEach(s => idsInInvoices.add(s.id)));
-  return { clientsNormalized, trackedByDate, idsInInvoices };
+  // Records already paired with a calendar event during this import (see the identical-slot pairing in parseEvent)
+  return { clientsNormalized, trackedByDate, idsInInvoices, usedIds: new Set() };
 }
 
 // Normalizes text for matching: folds accented letters to their plain equivalent
@@ -5106,7 +5114,7 @@ function showToast(icon, msg) { const t = document.getElementById('toast'); docu
 // >>> RELEASE CHECKLIST: change APP_VERSION below every time a new version is published
 // >>> (any change to this file that people should pick up). Forgetting is harmless (no
 // >>> banner appears for that release) but means old tabs are not told.
-const APP_VERSION = '2026-11-02.2';
+const APP_VERSION = '2026-11-02.3';
 const VERSION_CHECK_EVERY_MS = 10 * 60 * 1000;
 let lastVersionCheck = 0;
 let newVersionShown = null;
