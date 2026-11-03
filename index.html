@@ -3401,10 +3401,24 @@ function generateBatchInvoice() {
 }
 
 // ── INVOICE ───────────────────────────────────────────────
+// An invoice goes to ONE agency. If the selected assignments belong to more than one,
+// tell the user which agencies are mixed (and stop), so a different agency's work can
+// never slip onto the wrong invoice.
+function mixedAgencyMessage(sel) {
+  const names = {};
+  sel.forEach(a => { names[a.clientId || a.clientName] = a.clientName || 'Unknown agency'; });
+  const list = Object.values(names);
+  if (list.length < 2) return '';
+  return 'The assignments you selected belong to more than one agency:\n\n• ' + list.join('\n• ') +
+    '\n\nAn invoice can only be for one agency. Uncheck the assignments that belong to a different agency — they stay in your list so you can invoice them separately.';
+}
+
 function goToStep3() {
   if (!requireActiveAccount()) return;
   const sel = getSelected();
   if (!sel.length) { showToast('⚠️', 'Select at least one assignment'); return; }
+  const mixed = mixedAgencyMessage(sel);
+  if (mixed) { alert(mixed); return; }
 
   // Same duplicate check as the assignments list, but specifically on what's
   // actually selected for THIS invoice — a last checkpoint before it's sent,
@@ -3846,6 +3860,8 @@ ${pendingEmailPdfBase64}
 function markSent(skipReset) {
   if (!requireActiveAccount()) return;
   const sel = getSelected();
+  const mixed = mixedAgencyMessage(sel);
+  if (mixed) { alert(mixed); return; }
   const billedClient = sel[0] ? clients.find(c => c.id === sel[0].clientId) : null;
   const newId = uid();
   history.unshift({ 
@@ -5090,7 +5106,7 @@ function showToast(icon, msg) { const t = document.getElementById('toast'); docu
 // >>> RELEASE CHECKLIST: change APP_VERSION below every time a new version is published
 // >>> (any change to this file that people should pick up). Forgetting is harmless (no
 // >>> banner appears for that release) but means old tabs are not told.
-const APP_VERSION = '2026-10-29.1';
+const APP_VERSION = '2026-11-02.2';
 const VERSION_CHECK_EVERY_MS = 10 * 60 * 1000;
 let lastVersionCheck = 0;
 let newVersionShown = null;
