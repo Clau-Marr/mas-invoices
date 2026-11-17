@@ -764,7 +764,7 @@ textarea{resize:vertical;min-height:70px;}
     <div id="sub-manage" style="display:none;"></div>
     <div id="sub-trial" style="display:none;"></div>
     <div id="sub-plans">
-    <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5;">Choose the plan that matches how much you bill through Novium each month. You'll be taken to a secure Stripe checkout page.</div>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5;">Choose the plan that matches how much you bill through Novium each month. You'll confirm the subscription terms, then be taken to a secure Stripe checkout page.</div>
     <div style="display:flex;flex-direction:column;gap:8px;">
       <button class="btn btn-outline btn-sm" style="justify-content:space-between;width:100%;" onclick="subscribeToPlan('starter')">
         <span>Starter — up to $2,000/mo billed</span><span>$9.99/mo</span>
@@ -836,6 +836,23 @@ textarea{resize:vertical;min-height:70px;}
 </div>
 </div>
 
+<!-- Confirm subscription: recurring-charge authorization, shown before Stripe checkout -->
+<div class="modal-bg" id="subscribe-consent-modal" style="display:none" onclick="if(event.target===this && !subscribeBusy)closeModal('subscribe-consent-modal')">
+<div class="modal" style="max-width:520px;">
+  <div class="modal-title">Confirm your subscription</div>
+  <div style="font-size:12px;color:var(--ink3);line-height:1.5;margin-bottom:12px;">Please read this and tick the box. Then you'll go to Stripe's secure page to enter your card. Nothing is charged until you do.</div>
+  <label style="display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.6;cursor:pointer;margin:0 0 14px;">
+    <input type="checkbox" id="subscribe-consent-check" onchange="onSubscribeConsentChange()" style="margin-top:4px;flex-shrink:0;">
+    <span id="subscribe-consent-text"></span>
+  </label>
+  <div id="subscribe-consent-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:10px;line-height:1.5;"></div>
+  <div style="display:flex;justify-content:flex-end;gap:8px;">
+    <button class="btn btn-ghost" onclick="closeModal('subscribe-consent-modal')">Cancel</button>
+    <button class="btn btn-primary" id="subscribe-consent-go" onclick="confirmSubscribe()" disabled style="opacity:.5;">Continue to secure checkout</button>
+  </div>
+</div>
+</div>
+
 <div class="toast" id="toast"><span id="t-icon">✓</span><span id="t-msg">Saved</span></div>
 
 <script>
@@ -884,32 +901,76 @@ const SETUP_CALL_PRICE_ID = 'price_1U6edq5KGdcWMYz3jLHzWEyo';
 // chosen plan. The actual charge never happens inside Novium itself — this
 // just asks our own server-side function (create-checkout-session) to build
 // that page, then redirects the browser there.
+// Two steps. 1) subscribeToPlan() asks our server for the exact authorization wording and shows it next to
+// an unticked checkbox. 2) confirmSubscribe() sends the ticked authorization; the server saves a record of
+// it and then returns the Stripe checkout page to go to.
+let subscribePriceId = null;
+let subscribeOfferVersion = null;
+let subscribeBusy = false;
+
+async function subscribeCheckoutCall(payload) {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  const resp = await fetch(supabaseUrl + '/functions/v1/create-checkout-session', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + session.access_token
+    },
+    body: JSON.stringify(payload)
+  });
+  return resp.json();
+}
+
 async function subscribeToPlan(tier) {
   const priceId = CHECKOUT_PRICES[tier];
   if (!priceId) { showToast('⚠️', 'Unknown plan'); return; }
   if (!currentUser) { showToast('⚠️', 'Please sign in first'); return; }
 
-  showToast('🔄', 'Opening secure checkout…');
-
+  showToast('🔄', 'One moment…');
   try {
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    const resp = await fetch(supabaseUrl + '/functions/v1/create-checkout-session', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + session.access_token
-      },
-      body: JSON.stringify({ priceId })
-    });
-    const data = await resp.json();
-    if (data.url) {
-      window.location.href = data.url;
-    } else {
-      showToast('⚠️', data.error || 'Could not start checkout');
-    }
+    const data = await subscribeCheckoutCall({ priceId, preview: true });
+    if (!data.offerText) { showToast('⚠️', data.error || 'Could not start checkout'); return; }
+    subscribePriceId = priceId;
+    subscribeOfferVersion = data.offerVersion;
+    document.getElementById('subscribe-consent-text').innerHTML =
+      esc(data.offerText).replace('Terms of Service', '<a href="https://getnovium.com/terms.html" target="_blank" rel="noopener">Terms of Service</a>');
+    document.getElementById('subscribe-consent-check').checked = false;
+    document.getElementById('subscribe-consent-error').style.display = 'none';
+    onSubscribeConsentChange();
+    document.getElementById('subscribe-consent-modal').style.display = 'flex';
   } catch (e) {
     showToast('⚠️', 'Checkout error: ' + e.message);
   }
+}
+
+function onSubscribeConsentChange() {
+  const btn = document.getElementById('subscribe-consent-go');
+  const ok = document.getElementById('subscribe-consent-check').checked && !subscribeBusy;
+  btn.disabled = !ok;
+  btn.style.opacity = ok ? '1' : '.5';
+}
+
+async function confirmSubscribe() {
+  if (subscribeBusy || !subscribePriceId) return;
+  if (!document.getElementById('subscribe-consent-check').checked) return;
+  subscribeBusy = true;
+  onSubscribeConsentChange();
+  const errEl = document.getElementById('subscribe-consent-error');
+  errEl.style.display = 'none';
+  try {
+    const data = await subscribeCheckoutCall({ priceId: subscribePriceId, authorized: true, offerVersion: subscribeOfferVersion });
+    if (data.url) {
+      window.location.href = data.url;
+      return; // leaving the page; keep the button disabled
+    }
+    errEl.textContent = data.error || 'Could not start checkout. Nothing was charged.';
+    errEl.style.display = 'block';
+  } catch (e) {
+    errEl.textContent = 'Checkout error: ' + e.message + ' Nothing was charged.';
+    errEl.style.display = 'block';
+  }
+  subscribeBusy = false;
+  onSubscribeConsentChange();
 }
 
 // ── PAYMENT-FAILURE HANDLING ──────────────────────────────
@@ -5114,7 +5175,7 @@ function showToast(icon, msg) { const t = document.getElementById('toast'); docu
 // >>> RELEASE CHECKLIST: change APP_VERSION below every time a new version is published
 // >>> (any change to this file that people should pick up). Forgetting is harmless (no
 // >>> banner appears for that release) but means old tabs are not told.
-const APP_VERSION = '2026-11-02.3';
+const APP_VERSION = '2026-11-16.1';
 const VERSION_CHECK_EVERY_MS = 10 * 60 * 1000;
 let lastVersionCheck = 0;
 let newVersionShown = null;
